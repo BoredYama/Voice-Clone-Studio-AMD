@@ -68,7 +68,7 @@ class PrepSamplesTool(Tool):
         # Let's hide dataset if train model is off
         train_model_enabled = _user_config.get("enabled_tools", {}).get("Train Model", True)
 
-        with gr.TabItem("Prep Audio Samples") as prep_tab:
+        with gr.TabItem("Prep Samples") as prep_tab:
             components['prep_tab'] = prep_tab
             if train_model_enabled is True:
                 gr.Markdown("Prepare audio samples for voice cloning or finetuning datasets.")
@@ -1493,20 +1493,45 @@ class PrepSamplesTool(Tool):
             js="() => { setTimeout(() => { const btn = document.querySelector('#prep-audio-editor .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
-        # --- Auto-refresh when tab is selected ---
-        def on_prep_tab_select(data_type, folder):
+        # --- Auto-refresh when tab is selected (preserve selections) ---
+        def on_prep_tab_select(data_type, folder, sample_lister_value, dataset_lister_value):
             """Refresh all file lists when Prep Audio tab is selected."""
-            sample_files = get_sample_choices()
+            # Refresh samples with preserved selection
+            new_sample_files = get_sample_choices()
+            prev_sample_selected = []
+            if sample_lister_value:
+                prev = sample_lister_value.get("selected", [])
+                new_names = set(new_sample_files)
+                prev_sample_selected = [s for s in prev if s in new_names]
+            sample_update = {"files": [{"name": f, "date": ""} for f in new_sample_files], "selected": prev_sample_selected}
+
+            # Refresh folder dropdown (preserve current folder selection)
             folder_choices = ["(Select Dataset)"] + get_dataset_folders()
-            if is_dataset_mode(data_type) and folder and folder not in ("(No folders)", "(Select Dataset)"):
-                dataset_files = get_dataset_files(folder)
+            if folder and folder in folder_choices:
+                folder_update = gr.update(choices=folder_choices, value=folder)
             else:
-                dataset_files = gr.update()
-            return sample_files, gr.update(choices=folder_choices), dataset_files
+                folder_update = gr.update(choices=folder_choices)
+
+            # Refresh dataset files with preserved selection
+            if is_dataset_mode(data_type) and folder and folder not in ("(No folders)", "(Select Dataset)"):
+                new_dataset_files = get_dataset_files(folder)
+                prev_ds_selected = []
+                if dataset_lister_value:
+                    prev_ds = dataset_lister_value.get("selected", [])
+                    new_ds_names = set(new_dataset_files) if isinstance(new_dataset_files, list) else set()
+                    prev_ds_selected = [s for s in prev_ds if s in new_ds_names]
+                if isinstance(new_dataset_files, list):
+                    dataset_update = {"files": [{"name": f, "date": ""} for f in new_dataset_files], "selected": prev_ds_selected}
+                else:
+                    dataset_update = new_dataset_files
+            else:
+                dataset_update = gr.update()
+            return sample_update, folder_update, dataset_update
 
         components['prep_tab'].select(
             on_prep_tab_select,
-            inputs=[components['prep_data_type'], components['finetune_folder_dropdown']],
+            inputs=[components['prep_data_type'], components['finetune_folder_dropdown'],
+                    components['sample_lister'], components['dataset_lister']],
             outputs=[components['sample_lister'], components['finetune_folder_dropdown'], components['dataset_lister']]
         )
 

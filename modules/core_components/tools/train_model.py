@@ -83,8 +83,8 @@ class TrainModelTool(Tool):
 
                     components['batch_size_slider'] = gr.Slider(
                         minimum=1,
-                        maximum=8,
-                        value=2,
+                        maximum=10,
+                        value=1,
                         step=1,
                         label="Batch Size",
                         info="Reduce if you get out of memory errors"
@@ -101,7 +101,7 @@ class TrainModelTool(Tool):
                     components['num_epochs_slider'] = gr.Slider(
                         minimum=1,
                         maximum=100,
-                        value=5,
+                        value=10,
                         step=1,
                         label="Number of Epochs",
                         info="How many times to train on the full dataset"
@@ -157,9 +157,17 @@ class TrainModelTool(Tool):
             outputs=[components['ref_audio_lister'], components['ref_audio_preview']]
         )
 
-        # Auto-refresh datasets when tab is selected
+        # Auto-refresh datasets when tab is selected (preserve selection)
+        def refresh_datasets_keep_selection(current_folder):
+            """Refresh dataset list while preserving the current selection."""
+            folder_choices = ["(Select Dataset)"] + get_dataset_folders()
+            if current_folder and current_folder in folder_choices:
+                return gr.update(choices=folder_choices, value=current_folder)
+            return gr.update(choices=folder_choices, value="(Select Dataset)")
+
         components['train_tab'].select(
-            lambda: gr.update(choices=["(Select Dataset)"] + get_dataset_folders(), value="(Select Dataset)"),
+            refresh_datasets_keep_selection,
+            inputs=[components['train_folder_dropdown']],
             outputs=[components['train_folder_dropdown']]
         )
 

@@ -1,5 +1,45 @@
 # Version History
 
+## February 14, 2026
+#### Version 1.7.5 - Bug Fixes & Polish
+
+**Persistent Settings Improvements**
+- **Per-Model-Type Storage** - Advanced parameters now save separately for each Qwen model type (Base, Speakers, Trained, Design) instead of a shared "qwen" bucket
+- **Independent Restore** - Switching between model types restores the correct saved parameters for each one
+- **Accordion Visibility Fix** - Fixed advanced parameter sliders resetting to defaults when switching engines, by toggling wrapper visibility instead of accordion visibility
+
+**Bug Fixes**
+- **Fixed Return Value Mismatches** - Corrected early-return paths in Voice Clone and Voice Design that returned fewer values than expected, causing Gradio errors when validation failed
+- **Voice Changer Recording Error** - Gracefully handles Gradio's microphone recording bug (short recordings causing Content-Length errors) with a clear status message instead of a crash
+
+**UI Polish**
+- **Shorter Tab Names** - Trimmed tool tab labels to prevent overflow when many tools are enabled
+
+## February 14, 2026
+#### Version 1.7.0 - Output Formats, Embedded Metadata & Persistent Settings
+
+**Output Format Selection**
+- **Multiple Output Formats** - Choose between WAV, FLAC, or MP3 (320kbps) for all generated audio in Settings
+- **Review Before Saving** - New "Review Before Saving" mode lets you listen to results before committing; a Save button appears on each tool to save when ready
+- **Consistent Save Flow** - Save button is disabled until audio is generated, and disables again after saving to prevent duplicate saves
+
+**Embedded Metadata**
+- **Self-Contained Audio Files** - Generation metadata (engine, seed, text, settings, etc.) is now embedded directly inside audio files using industry-standard tags (ID3 for WAV/MP3, Vorbis comments for FLAC)
+- **No More .txt Companion Files** - Eliminates the need for separate metadata text files alongside each output
+- **Backward Compatible** - Output History still reads old `.txt` metadata files for previously generated audio
+- **Powered by Mutagen** - Pure Python audio tagging, works on Windows, Linux, and macOS
+
+**Persistent Advanced Settings**
+- **Settings Survive Restarts** - Advanced TTS parameters (temperature, top-k, top-p, repetition penalty, etc.) are now saved per tool and restored automatically
+- **Per-Engine Storage** - Each engine's parameters are stored independently, so switching engines preserves your tuning
+- **Automatic Save** - Parameters save instantly when changed, no manual action needed
+
+**Voice Design Improvements**
+- **Auto-Fill Save Name** - When using a Prompt Manager-generated JSON instruction, the save dialog automatically uses the `label` field as the suggested filename
+
+**Output History**
+- **Multi-Format Support** - Output History now lists WAV, FLAC, and MP3 files
+
 ## February 11, 2026
 #### Version 1.6.0 - Chatterbox TTS & Voice Changer
 

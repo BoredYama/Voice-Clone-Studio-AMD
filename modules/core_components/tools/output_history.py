@@ -48,7 +48,10 @@ class OutputHistoryTool(Tool):
             """
             if not OUTPUT_DIR or not OUTPUT_DIR.exists():
                 return []
-            files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda x: x.stat().st_mtime, reverse=True)
+            files = []
+            for ext in ("*.wav", "*.flac", "*.mp3"):
+                files.extend(OUTPUT_DIR.glob(ext))
+            files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
             result = []
             for f in files:
                 try:
@@ -59,7 +62,7 @@ class OutputHistoryTool(Tool):
                 result.append({"name": f.name, "date": date_str})
             return result
 
-        with gr.TabItem("Output History") as tab:
+        with gr.TabItem("Output") as tab:
             components['tab'] = tab
             gr.Markdown("Browse and manage previously generated audio files")
             with gr.Row():
@@ -102,12 +105,16 @@ class OutputHistoryTool(Tool):
         OUTPUT_DIR = shared_state.get('OUTPUT_DIR')
         show_confirmation_modal_js = shared_state.get('show_confirmation_modal_js')
         confirm_trigger = shared_state.get('confirm_trigger')
+        read_embedded_metadata = shared_state.get('read_embedded_metadata')
 
         def get_output_files_for_lister():
             """Get list of generated output files for the FileLister widget."""
             if not OUTPUT_DIR or not OUTPUT_DIR.exists():
                 return []
-            files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda x: x.stat().st_mtime, reverse=True)
+            files = []
+            for ext in ("*.wav", "*.flac", "*.mp3"):
+                files.extend(OUTPUT_DIR.glob(ext))
+            files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
             result = []
             for f in files:
                 try:
@@ -136,13 +143,10 @@ class OutputHistoryTool(Tool):
             if len(selected) == 1:
                 file_path = OUTPUT_DIR / selected[0]
                 if file_path.exists():
-                    metadata_file = file_path.with_suffix(".txt")
-                    if metadata_file.exists():
-                        try:
-                            metadata = metadata_file.read_text(encoding="utf-8")
-                            return str(file_path), metadata
-                        except Exception:
-                            pass
+                    # Read embedded metadata from the audio file
+                    metadata = read_embedded_metadata(str(file_path)) if read_embedded_metadata else None
+                    if metadata:
+                        return str(file_path), metadata
                     return str(file_path), "No metadata available"
             # Multiple or no selection - clear
             return None, ""

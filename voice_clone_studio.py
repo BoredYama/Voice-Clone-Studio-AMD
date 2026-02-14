@@ -110,10 +110,6 @@ if platform.system() == "Darwin":
     _user_config["enabled_tools"]["Train Model"] = False
     print("macOS detected: Train Model tab disabled (requires CUDA)")
 
-# Ensure config has emotions key set (emotion_manager expects it)
-if 'emotions' not in _user_config or _user_config['emotions'] is None:
-    _user_config['emotions'] = _active_emotions
-
 # Initialize directories
 SAMPLES_DIR = Path(__file__).parent / _user_config.get("samples_folder", "samples")
 OUTPUT_DIR = Path(__file__).parent / _user_config.get("output_folder", "output")
@@ -257,7 +253,7 @@ def create_ui():
             _foley_manager.unload_all()
             # Stop llama.cpp server if running
             try:
-                from modules.core_components.tools.prompt_manager import _stop_server
+                from modules.core_components.tools.prompt_generator import _stop_server
                 _stop_server()
             except Exception:
                 pass

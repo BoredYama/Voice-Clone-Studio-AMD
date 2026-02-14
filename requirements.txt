@@ -7,6 +7,7 @@ qwen-tts
 librosa
 torchaudio
 soundfile
+mutagen
 sox
 einops
 huggingface_hub

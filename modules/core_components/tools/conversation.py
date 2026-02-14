@@ -338,12 +338,15 @@ class ConversationTool(Tool):
 
                         # Chatterbox Advanced Parameters
                         create_chatterbox_advanced_params = shared_state['create_chatterbox_advanced_params']
-                        cb_conv_params = create_chatterbox_advanced_params(visible=True)
+                        cb_conv_params = create_chatterbox_advanced_params(
+                            visible=True
+                        )
                         components['cb_conv_exaggeration'] = cb_conv_params['exaggeration']
                         components['cb_conv_cfg_weight'] = cb_conv_params['cfg_weight']
                         components['cb_conv_temperature'] = cb_conv_params['temperature']
                         components['cb_conv_repetition_penalty'] = cb_conv_params['repetition_penalty']
                         components['cb_conv_top_p'] = cb_conv_params['top_p']
+                        components['cb_conv_accordion'] = cb_conv_params.get('accordion')
 
                     # LuxTTS-specific settings
                     components['luxtts_settings'] = gr.Column(visible=is_luxtts)
@@ -359,7 +362,9 @@ class ConversationTool(Tool):
                         )
 
                         # LuxTTS Advanced Parameters
-                        lux_conv_params = create_luxtts_advanced_params(visible=True)
+                        lux_conv_params = create_luxtts_advanced_params(
+                            visible=True
+                        )
                         components['lux_conv_num_steps'] = lux_conv_params['num_steps']
                         components['lux_conv_t_shift'] = lux_conv_params['t_shift']
                         components['lux_conv_speed'] = lux_conv_params['speed']
@@ -367,6 +372,7 @@ class ConversationTool(Tool):
                         components['lux_conv_rms'] = lux_conv_params['rms']
                         components['lux_conv_ref_duration'] = lux_conv_params['ref_duration']
                         components['lux_conv_return_smooth'] = lux_conv_params['return_smooth']
+                        components['lux_conv_accordion'] = lux_conv_params.get('accordion')
 
                     # VibeVoice-specific settings
                     components['vibevoice_settings'] = gr.Column(visible=is_vibevoice)
@@ -380,8 +386,6 @@ class ConversationTool(Tool):
 
                         # VibeVoice Advanced Parameters
                         vv_conv_params = create_vibevoice_advanced_params(
-                            initial_num_steps=20,
-                            initial_cfg_scale=3.0,
                             include_sentences_per_chunk=True,
                             visible=True
                         )
@@ -393,30 +397,46 @@ class ConversationTool(Tool):
                         components['vv_conv_temperature'] = vv_conv_params['temperature']
                         components['vv_conv_top_k'] = vv_conv_params['top_k']
                         components['vv_conv_top_p'] = vv_conv_params['top_p']
+                        components['vv_conv_accordion'] = vv_conv_params.get('accordion')
 
-                    # Qwen Advanced Parameters
-                    components['qwen_conv_advanced'] = gr.Column(visible=(is_qwen_custom or is_qwen_base))
-                    with components['qwen_conv_advanced']:
-                        # Emotion intensity slider
-                        components['conv_emotion_intensity_row'] = gr.Row(visible=is_qwen_base)
+                    # Qwen Custom Voice Advanced Parameters
+                    components['qwen_custom_conv_advanced'] = gr.Column(visible=is_qwen_custom)
+                    with components['qwen_custom_conv_advanced']:
+                        qwen_custom_conv_params = create_qwen_advanced_params(
+                            include_emotion=False,
+                            visible=True
+                        )
+                        components['qwen_custom_conv_do_sample'] = qwen_custom_conv_params['do_sample']
+                        components['qwen_custom_conv_temperature'] = qwen_custom_conv_params['temperature']
+                        components['qwen_custom_conv_top_k'] = qwen_custom_conv_params['top_k']
+                        components['qwen_custom_conv_top_p'] = qwen_custom_conv_params['top_p']
+                        components['qwen_custom_conv_repetition_penalty'] = qwen_custom_conv_params['repetition_penalty']
+                        components['qwen_custom_conv_max_new_tokens'] = qwen_custom_conv_params['max_new_tokens']
+                        components['qwen_custom_conv_accordion'] = qwen_custom_conv_params.get('accordion')
+
+                    # Qwen Base Advanced Parameters
+                    components['qwen_base_conv_advanced'] = gr.Column(visible=is_qwen_base)
+                    with components['qwen_base_conv_advanced']:
+                        # Emotion intensity slider (Base only)
+                        components['conv_emotion_intensity_row'] = gr.Row()
                         with components['conv_emotion_intensity_row']:
                             components['conv_emotion_intensity'] = create_emotion_intensity_slider(
                                 initial_intensity=1.0,
                                 label="Emotion Intensity",
-                                visible=is_qwen_base
+                                visible=True
                             )
 
-                        # Qwen advanced parameters
-                        qwen_conv_params = create_qwen_advanced_params(
+                        qwen_base_conv_params = create_qwen_advanced_params(
                             include_emotion=False,
-                            visible=(is_qwen_custom or is_qwen_base)
+                            visible=True
                         )
-                        components['qwen_conv_do_sample'] = qwen_conv_params['do_sample']
-                        components['qwen_conv_temperature'] = qwen_conv_params['temperature']
-                        components['qwen_conv_top_k'] = qwen_conv_params['top_k']
-                        components['qwen_conv_top_p'] = qwen_conv_params['top_p']
-                        components['qwen_conv_repetition_penalty'] = qwen_conv_params['repetition_penalty']
-                        components['qwen_conv_max_new_tokens'] = qwen_conv_params['max_new_tokens']
+                        components['qwen_base_conv_do_sample'] = qwen_base_conv_params['do_sample']
+                        components['qwen_base_conv_temperature'] = qwen_base_conv_params['temperature']
+                        components['qwen_base_conv_top_k'] = qwen_base_conv_params['top_k']
+                        components['qwen_base_conv_top_p'] = qwen_base_conv_params['top_p']
+                        components['qwen_base_conv_repetition_penalty'] = qwen_base_conv_params['repetition_penalty']
+                        components['qwen_base_conv_max_new_tokens'] = qwen_base_conv_params['max_new_tokens']
+                        components['qwen_base_conv_accordion'] = qwen_base_conv_params.get('accordion')
 
                     # Shared settings
                     components['conv_generate_btn'] = gr.Button("Generate Conversation", variant="primary", size="lg")
@@ -425,6 +445,15 @@ class ConversationTool(Tool):
                         label="Generated Conversation",
                         type="filepath"
                     )
+
+                    # Save button — visible only when "Review Before Saving" is enabled
+                    manual_save = _user_config.get("manual_save", False)
+                    components['conv_save_result_btn'] = gr.Button(
+                        "Save to Output", variant="primary", size="lg",
+                        visible=manual_save, interactive=False
+                    )
+                    components['_conv_result_metadata'] = gr.Textbox(visible=False)
+
                     components['conv_status'] = gr.Textbox(label="Status", interactive=False, lines=2, max_lines=5)
 
                     # Model-specific tips
@@ -521,14 +550,88 @@ class ConversationTool(Tool):
         get_sample_choices = shared_state['get_sample_choices']
         save_preference = shared_state['save_preference']
         OUTPUT_DIR = shared_state['OUTPUT_DIR']
+        TEMP_DIR = shared_state['TEMP_DIR']
         CUSTOM_VOICE_SPEAKERS = shared_state['CUSTOM_VOICE_SPEAKERS']
         LANGUAGES = shared_state['LANGUAGES']
         _active_emotions = shared_state.get('_active_emotions', {})
         play_completion_beep = shared_state.get('play_completion_beep')
         get_or_create_voice_prompt = shared_state.get('get_or_create_voice_prompt')
+        save_audio_to_temp = shared_state['save_audio_to_temp']
+        save_result_to_output = shared_state['save_result_to_output']
 
         # Get TTS manager (singleton)
         tts_manager = get_tts_manager()
+
+        # Wire param persistence (auto-save on change)
+        wire_param_persistence = shared_state['wire_param_persistence']
+        _user_config = shared_state['_user_config']
+        param_map = {
+            'qwen_custom': [
+                ('qwen_custom_conv_do_sample', 'do_sample'),
+                ('qwen_custom_conv_temperature', 'temperature'),
+                ('qwen_custom_conv_top_k', 'top_k'),
+                ('qwen_custom_conv_top_p', 'top_p'),
+                ('qwen_custom_conv_repetition_penalty', 'repetition_penalty'),
+                ('qwen_custom_conv_max_new_tokens', 'max_new_tokens'),
+            ],
+            'qwen_base': [
+                ('conv_emotion_intensity', 'emotion_intensity'),
+                ('qwen_base_conv_do_sample', 'do_sample'),
+                ('qwen_base_conv_temperature', 'temperature'),
+                ('qwen_base_conv_top_k', 'top_k'),
+                ('qwen_base_conv_top_p', 'top_p'),
+                ('qwen_base_conv_repetition_penalty', 'repetition_penalty'),
+                ('qwen_base_conv_max_new_tokens', 'max_new_tokens'),
+            ],
+            'vibevoice': [
+                ('longform_cfg_scale', 'cfg_scale'),
+                ('vv_conv_num_steps', 'num_steps'),
+                ('vv_conv_do_sample', 'do_sample'),
+                ('vv_conv_sentences_per_chunk', 'sentences_per_chunk'),
+                ('vv_conv_repetition_penalty', 'repetition_penalty'),
+                ('vv_conv_temperature', 'temperature'),
+                ('vv_conv_top_k', 'top_k'),
+                ('vv_conv_top_p', 'top_p'),
+            ],
+            'luxtts': [
+                ('lux_conv_num_steps', 'num_steps'),
+                ('lux_conv_t_shift', 't_shift'),
+                ('lux_conv_speed', 'speed'),
+                ('lux_conv_return_smooth', 'return_smooth'),
+                ('lux_conv_rms', 'rms'),
+                ('lux_conv_ref_duration', 'ref_duration'),
+                ('lux_conv_guidance_scale', 'guidance_scale'),
+            ],
+            'chatterbox': [
+                ('cb_conv_exaggeration', 'exaggeration'),
+                ('cb_conv_cfg_weight', 'cfg_weight'),
+                ('cb_conv_temperature', 'temperature'),
+                ('cb_conv_repetition_penalty', 'repetition_penalty'),
+                ('cb_conv_top_p', 'top_p'),
+            ],
+        }
+        wire_param_persistence(components, _user_config, param_map)
+
+        # Create restore handler for applying saved params on tab select / model switch
+        create_param_restore_handler = shared_state['create_param_restore_handler']
+        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, param_map)
+
+        def finalize_conversation_output(final_audio, sr, filename_stem, metadata_out, status_msg, progress):
+            """Save conversation audio to temp, then auto-save or wait for manual save."""
+            temp_path = save_audio_to_temp(final_audio, sr, TEMP_DIR, filename_stem)
+            manual_save = _user_config.get("manual_save", False)
+            if manual_save:
+                progress(1.0, desc="Done!")
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(temp_path), status_msg + "\nClick 'Save to Output' to keep this result.", metadata_out, gr.update(interactive=True)
+            else:
+                output_format = _user_config.get("output_format", "wav")
+                output_path = save_result_to_output(temp_path, OUTPUT_DIR, output_format, metadata_out)
+                progress(1.0, desc="Done!")
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(output_path), status_msg, "", gr.update()
 
         def prepare_voice_samples_dict(v1, v2=None, v3=None, v4=None, v5=None, v6=None, v7=None, v8=None):
             """Prepare voice samples dictionary for generation."""
@@ -600,7 +703,7 @@ class ConversationTool(Tool):
                                           progress=gr.Progress()):
             """Generate multi-speaker conversation with Qwen Speakers preset speakers."""
             if not conversation_data or not conversation_data.strip():
-                return None, "❌ Please enter conversation lines."
+                return None, "❌ Please enter conversation lines.", "", gr.update()
 
             conversation_data = preprocess_conversation_script(conversation_data)
 
@@ -625,7 +728,7 @@ class ConversationTool(Tool):
                                     lines.append((speaker, text))
 
                 if not lines:
-                    return None, "❌ No valid conversation lines found. Use format: [N]: Text"
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -714,11 +817,7 @@ class ConversationTool(Tool):
 
                 # Save
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = OUTPUT_DIR / f"conversation_qwen3_{timestamp}.wav"
-                sf.write(str(output_file), final_audio, sr)
-
-                # Save metadata
-                metadata_file = output_file.with_suffix(".txt")
+                filename_stem = f"conversation_qwen3_{timestamp}"
                 speakers_used = list(set(s for s, _ in lines))
                 metadata = dedent(f"""\
                     Generated: {timestamp}
@@ -739,18 +838,13 @@ class ConversationTool(Tool):
                     --- Script ---
                     {conversation_data.strip()}
                     """)
-                # Strip leading blank lines and left-strip all lines for flush-left output
                 metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                metadata_file.write_text(metadata_out, encoding="utf-8")
-
-                progress(1.0, desc="Done!")
                 duration = len(final_audio) / sr
-                if play_completion_beep:
-                    play_completion_beep()
-                return str(output_file), f"Conversation saved: {output_file.name}\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | {model_size}"
+                status_msg = f"Conversation generated.\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | {model_size}"
+                return finalize_conversation_output(final_audio, sr, filename_stem, metadata_out, status_msg, progress)
 
             except Exception as e:
-                return None, f"❌ Error generating conversation: {str(e)}"
+                return None, f"❌ Error generating conversation: {str(e)}", "", gr.update()
 
         def generate_conversation_base_handler(conversation_data, voice_samples_dict, pause_linebreak,
                                                pause_period, pause_comma, pause_question, pause_hyphen,
@@ -759,10 +853,10 @@ class ConversationTool(Tool):
                                                progress=gr.Progress()):
             """Generate multi-speaker conversation with Qwen Base + custom voice samples."""
             if not conversation_data or not conversation_data.strip():
-                return None, "❌ Please enter conversation lines."
+                return None, "❌ Please enter conversation lines.", "", gr.update()
 
             if not voice_samples_dict:
-                return None, "❌ Please select at least one voice sample."
+                return None, "❌ Please select at least one voice sample.", "", gr.update()
 
             conversation_data = preprocess_conversation_script(conversation_data)
 
@@ -788,13 +882,14 @@ class ConversationTool(Tool):
                                     lines.append((speaker_key, sample_data["wav_path"], sample_data["ref_text"], text))
 
                 if not lines:
-                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)"
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
                 set_seed(seed)
+
 
                 progress(0.1, desc=f"Loading Base model ({model_size})...")
                 model = tts_manager.get_qwen3_base(model_size)
@@ -892,11 +987,7 @@ class ConversationTool(Tool):
 
                 # Save
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = OUTPUT_DIR / f"conversation_qwen_base_{timestamp}.wav"
-                sf.write(str(output_file), final_audio, sr)
-
-                # Save metadata
-                metadata_file = output_file.with_suffix(".txt")
+                filename_stem = f"conversation_qwen_base_{timestamp}"
                 speakers_used = list(set(k for k, _, _, _ in lines))
                 metadata = dedent(f"""\
                     Generated: {timestamp}
@@ -918,25 +1009,21 @@ class ConversationTool(Tool):
                     {conversation_data.strip()}
                     """)
                 metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                metadata_file.write_text(metadata_out, encoding="utf-8")
-
-                progress(1.0, desc="Done!")
                 duration = len(final_audio) / sr
-                if play_completion_beep:
-                    play_completion_beep()
-                return str(output_file), f"Conversation saved: {output_file.name}\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | Base {model_size}"
+                status_msg = f"Conversation generated.\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | Base {model_size}"
+                return finalize_conversation_output(final_audio, sr, filename_stem, metadata_out, status_msg, progress)
 
             except Exception as e:
                 import traceback
                 print(f"Error in generate_conversation_base_handler:\n{traceback.format_exc()}")
-                return None, f"❌ Error generating conversation: {str(e)}"
+                return None, f"❌ Error generating conversation: {str(e)}", "", gr.update()
 
         def generate_vibevoice_longform_handler(script_text, voice_samples_dict, model_size, cfg_scale, seed,
                                                 num_steps, do_sample, temperature, top_k, top_p, repetition_penalty,
                                                 sentences_per_chunk=0, progress=gr.Progress()):
             """Generate long-form multi-speaker audio with VibeVoice (up to 90 min)."""
             if not script_text or not script_text.strip():
-                return None, "❌ Please enter a script."
+                return None, "❌ Please enter a script.", "", gr.update()
 
             script_text = preprocess_conversation_script(script_text)
 
@@ -1000,7 +1087,7 @@ class ConversationTool(Tool):
                         available_samples.append((speaker_key, wav_path))
 
                 if not available_samples:
-                    return None, "❌ Please provide at least one voice sample (Speaker1)."
+                    return None, "❌ Please provide at least one voice sample (Speaker1).", "", gr.update()
 
                 voice_samples = [sample for _, sample in available_samples]
                 speaker_to_sample = {speaker: idx for idx, (speaker, _) in enumerate(available_samples)}
@@ -1093,7 +1180,7 @@ class ConversationTool(Tool):
                             print(f"  Chunk {idx + 1}/{len(chunks)} produced no audio, skipping")
 
                     if not audio_segments:
-                        return None, "❌ VibeVoice failed to generate audio for any chunk"
+                        return None, "❌ VibeVoice failed to generate audio for any chunk", "", gr.update()
 
                     generated_audio = np.concatenate(audio_segments)
 
@@ -1112,7 +1199,7 @@ class ConversationTool(Tool):
                         audio_tensor = outputs.speech_outputs[0].cpu().to(torch.float32)
                         generated_audio = audio_tensor.squeeze().numpy()
                     else:
-                        return None, "❌ No audio generated"
+                        return None, "❌ No audio generated", "", gr.update()
 
                 progress(0.9, desc="Saving audio...")
 
@@ -1120,11 +1207,7 @@ class ConversationTool(Tool):
 
                     # Save
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    output_file = OUTPUT_DIR / f"Conversation_vibevoice_{timestamp}.wav"
-                    sf.write(str(output_file), generated_audio, sr)
-
-                    # Save metadata
-                    metadata_file = output_file.with_suffix(".txt")
+                    filename_stem = f"Conversation_vibevoice_{timestamp}"
                     duration = len(generated_audio) / sr
                     chunk_info = f"Lines per Chunk: {sentences_per_chunk}" if sentences_per_chunk > 0 else "Chunking: Off"
                     metadata = dedent(f"""\
@@ -1141,17 +1224,13 @@ class ConversationTool(Tool):
                         {script_text.strip()}
                         """)
                     metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                    metadata_file.write_text(metadata_out, encoding="utf-8")
-
-                    progress(1.0, desc="Done!")
-                    if play_completion_beep:
-                        play_completion_beep()
-                    return str(output_file), f"Conversation saved: {output_file.name}\n{len(lines)} lines | {duration:.1f}s | Seed: {seed}"
+                    status_msg = f"Conversation generated.\n{len(lines)} lines | {duration:.1f}s | Seed: {seed}"
+                    return finalize_conversation_output(generated_audio, sr, filename_stem, metadata_out, status_msg, progress)
 
             except Exception as e:
                 import traceback
                 print(f"Error in generate_vibevoice_longform_handler:\n{traceback.format_exc()}")
-                return None, f"❌ Error generating conversation: {str(e)}"
+                return None, f"❌ Error generating conversation: {str(e)}", "", gr.update()
 
         def generate_luxtts_conversation_handler(
             conversation_data, voice_samples_dict,
@@ -1166,15 +1245,15 @@ class ConversationTool(Tool):
             then stitched together with configurable pauses between speaker turns.
             """
             if not conversation_data or not conversation_data.strip():
-                return None, "Error: Please enter conversation lines."
+                return None, "❌ Please enter conversation lines.", "", gr.update()
 
             if not voice_samples_dict:
-                return None, "Error: Please select at least one voice sample."
+                return None, "❌ Please select at least one voice sample.", "", gr.update()
 
             # Check all samples have transcripts
             transcript_error = validate_samples_have_transcripts(voice_samples_dict)
             if transcript_error:
-                return None, f"Error: {transcript_error}"
+                return None, f"❌ {transcript_error}", "", gr.update()
 
             conversation_data = preprocess_conversation_script(conversation_data)
 
@@ -1200,7 +1279,7 @@ class ConversationTool(Tool):
                                     lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text, sample_data.get("ref_text", "")))
 
                 if not lines:
-                    return None, "Error: No valid conversation lines found. Use format: [N]: Text (N=1-8)"
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -1246,7 +1325,7 @@ class ConversationTool(Tool):
                     all_segments.append((audio_data, line_pause))
 
                 if not all_segments:
-                    return None, "Error: No audio segments generated."
+                    return None, "❌ No audio segments generated.", "", gr.update()
 
                 # Concatenate
                 progress(0.9, desc="Stitching conversation...")
@@ -1264,11 +1343,7 @@ class ConversationTool(Tool):
 
                 # Save
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = OUTPUT_DIR / f"conversation_luxtts_{timestamp}.wav"
-                sf.write(str(output_file), final_audio, sr)
-
-                # Save metadata
-                metadata_file = output_file.with_suffix(".txt")
+                filename_stem = f"conversation_luxtts_{timestamp}"
                 speakers_used = list(set(k for k, _, _, _, _ in lines))
                 metadata = dedent(f"""\
                     Generated: {timestamp}
@@ -1287,18 +1362,14 @@ class ConversationTool(Tool):
                     {conversation_data.strip()}
                     """)
                 metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                metadata_file.write_text(metadata_out, encoding="utf-8")
-
-                progress(1.0, desc="Done!")
                 duration = len(final_audio) / sr
-                if play_completion_beep:
-                    play_completion_beep()
-                return str(output_file), f"Conversation saved: {output_file.name}\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | LuxTTS"
+                status_msg = f"Conversation generated.\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | LuxTTS"
+                return finalize_conversation_output(final_audio, sr, filename_stem, metadata_out, status_msg, progress)
 
             except Exception as e:
                 import traceback
                 print(f"Error in generate_luxtts_conversation_handler:\n{traceback.format_exc()}")
-                return None, f"Error generating LuxTTS conversation: {str(e)}"
+                return None, f"Error generating LuxTTS conversation: {str(e)}", "", gr.update()
 
         def generate_chatterbox_conversation_handler(
             conversation_data, voice_samples_dict,
@@ -1313,10 +1384,10 @@ class ConversationTool(Tool):
             English uses the fast default model; other languages use Multilingual.
             """
             if not conversation_data or not conversation_data.strip():
-                return None, "Error: Please enter conversation lines."
+                return None, "❌ Please enter conversation lines.", "", gr.update()
 
             if not voice_samples_dict:
-                return None, "Error: Please select at least one voice sample."
+                return None, "❌ Please select at least one voice sample.", "", gr.update()
 
             conversation_data = preprocess_conversation_script(conversation_data)
 
@@ -1344,7 +1415,7 @@ class ConversationTool(Tool):
                                     lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text))
 
                 if not lines:
-                    return None, "Error: No valid conversation lines found. Use format: [N]: Text (N=1-8)"
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -1409,7 +1480,7 @@ class ConversationTool(Tool):
                     all_segments.append((audio_data, line_pause))
 
                 if not all_segments:
-                    return None, "Error: No audio segments generated."
+                    return None, "❌ No audio segments generated.", "", gr.update()
 
                 # Concatenate
                 progress(0.9, desc="Stitching conversation...")
@@ -1427,11 +1498,7 @@ class ConversationTool(Tool):
 
                 # Save
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = OUTPUT_DIR / f"conversation_chatterbox_{timestamp}.wav"
-                sf.write(str(output_file), final_audio, sr)
-
-                # Save metadata
-                metadata_file = output_file.with_suffix(".txt")
+                filename_stem = f"conversation_chatterbox_{timestamp}"
                 speakers_used = list(set(k for k, _, _, _ in lines))
                 metadata = dedent(f"""\
                     Generated: {timestamp}
@@ -1451,18 +1518,14 @@ class ConversationTool(Tool):
                     {conversation_data.strip()}
                     """)
                 metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                metadata_file.write_text(metadata_out, encoding="utf-8")
-
-                progress(1.0, desc="Done!")
                 duration = len(final_audio) / sr
-                if play_completion_beep:
-                    play_completion_beep()
-                return str(output_file), f"Conversation saved: {output_file.name}\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | Chatterbox {model_label}"
+                status_msg = f"Conversation generated.\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | Chatterbox {model_label}"
+                return finalize_conversation_output(final_audio, sr, filename_stem, metadata_out, status_msg, progress)
 
             except Exception as e:
                 import traceback
                 print(f"Error in generate_chatterbox_conversation_handler:\n{traceback.format_exc()}")
-                return None, f"Error generating Chatterbox conversation: {str(e)}"
+                return None, f"Error generating Chatterbox conversation: {str(e)}", "", gr.update()
 
         def unified_conversation_generate(
             model_type, script,
@@ -1474,10 +1537,14 @@ class ConversationTool(Tool):
             # Qwen Base params
             qwen_base_pause_linebreak, qwen_base_pause_period, qwen_base_pause_comma, qwen_base_pause_question,
             qwen_base_pause_hyphen, qwen_base_model_size,
-            # Shared Qwen params
+            # Shared Qwen
             qwen_lang, qwen_seed, emotion_intensity,
-            # Qwen advanced params
-            qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p, qwen_repetition_penalty, qwen_max_new_tokens,
+            # Qwen Custom Voice advanced params
+            qwen_custom_do_sample, qwen_custom_temperature, qwen_custom_top_k, qwen_custom_top_p,
+            qwen_custom_repetition_penalty, qwen_custom_max_new_tokens,
+            # Qwen Base advanced params
+            qwen_base_do_sample, qwen_base_temperature, qwen_base_top_k, qwen_base_top_p,
+            qwen_base_repetition_penalty, qwen_base_max_new_tokens,
             # VibeVoice params
             vv_model_size, vv_cfg,
             # VibeVoice advanced params
@@ -1501,16 +1568,16 @@ class ConversationTool(Tool):
                 return generate_conversation_handler(script, qwen_custom_pause_linebreak, qwen_custom_pause_period,
                                                      qwen_custom_pause_comma, qwen_custom_pause_question,
                                                      qwen_custom_pause_hyphen, qwen_lang, qwen_seed, qwen_size,
-                                                     qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p,
-                                                     qwen_repetition_penalty, qwen_max_new_tokens, progress)
+                                                     qwen_custom_do_sample, qwen_custom_temperature, qwen_custom_top_k, qwen_custom_top_p,
+                                                     qwen_custom_repetition_penalty, qwen_custom_max_new_tokens, progress)
             elif model_type == "Qwen Base":
                 qwen_size = "1.7B" if qwen_base_model_size == "Large" else "0.6B"
                 return generate_conversation_base_handler(script, voice_samples, qwen_base_pause_linebreak,
                                                           qwen_base_pause_period, qwen_base_pause_comma,
                                                           qwen_base_pause_question, qwen_base_pause_hyphen,
                                                           qwen_lang, qwen_seed, qwen_size,
-                                                          qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p,
-                                                          qwen_repetition_penalty, qwen_max_new_tokens,
+                                                          qwen_base_do_sample, qwen_base_temperature, qwen_base_top_k, qwen_base_top_p,
+                                                          qwen_base_repetition_penalty, qwen_base_max_new_tokens,
                                                           emotion_intensity, progress)
             elif model_type == "LuxTTS":
                 return generate_luxtts_conversation_handler(script, voice_samples, lux_pause_linebreak,
@@ -1536,6 +1603,8 @@ class ConversationTool(Tool):
 
         # Event handlers
         components['conv_generate_btn'].click(
+            restore_fn, outputs=restore_outputs
+        ).then(
             unified_conversation_generate,
             inputs=[
                 components['conv_model_type'], components['conversation_script'],
@@ -1550,9 +1619,14 @@ class ConversationTool(Tool):
                 components['conv_pause_question'], components['conv_pause_hyphen'], components['conv_base_model_size'],
                 # Shared Qwen
                 components['conv_language'], components['conv_seed'], components['conv_emotion_intensity'],
-                # Qwen advanced params
-                components['qwen_conv_do_sample'], components['qwen_conv_temperature'], components['qwen_conv_top_k'], components['qwen_conv_top_p'],
-                components['qwen_conv_repetition_penalty'], components['qwen_conv_max_new_tokens'],
+                # Qwen Custom Voice advanced params
+                components['qwen_custom_conv_do_sample'], components['qwen_custom_conv_temperature'],
+                components['qwen_custom_conv_top_k'], components['qwen_custom_conv_top_p'],
+                components['qwen_custom_conv_repetition_penalty'], components['qwen_custom_conv_max_new_tokens'],
+                # Qwen Base advanced params
+                components['qwen_base_conv_do_sample'], components['qwen_base_conv_temperature'],
+                components['qwen_base_conv_top_k'], components['qwen_base_conv_top_p'],
+                components['qwen_base_conv_repetition_penalty'], components['qwen_base_conv_max_new_tokens'],
                 # VibeVoice
                 components['longform_model_size'], components['longform_cfg_scale'],
                 # VibeVoice advanced params
@@ -1570,7 +1644,25 @@ class ConversationTool(Tool):
                 # Shared
                 components['conv_seed']
             ],
-            outputs=[components['conv_output_audio'], components['conv_status']]
+            outputs=[components['conv_output_audio'], components['conv_status'], components['_conv_result_metadata'], components['conv_save_result_btn']]
+        )
+
+        # Save result button handler
+        def conv_save_result_handler(audio_path, metadata_text):
+            """Save the temp result to output folder in chosen format."""
+            if not audio_path:
+                return "❌ No audio to save.", gr.update()
+            try:
+                output_format = _user_config.get("output_format", "wav")
+                output_path = save_result_to_output(audio_path, OUTPUT_DIR, output_format, metadata_text or None)
+                return f"Saved to: {output_path.name}", gr.update(interactive=False)
+            except Exception as e:
+                return f"❌ Error saving: {str(e)}", gr.update()
+
+        components['conv_save_result_btn'].click(
+            conv_save_result_handler,
+            inputs=[components['conv_output_audio'], components['_conv_result_metadata']],
+            outputs=[components['conv_status'], components['conv_save_result_btn']]
         )
 
         # Toggle UI based on model selection
@@ -1600,8 +1692,8 @@ class ConversationTool(Tool):
                 components['qwen_custom_settings']: gr.update(visible=is_qwen_custom),
                 components['qwen_base_settings']: gr.update(visible=is_qwen_base),
                 components['qwen_pause_controls']: gr.update(visible=is_qwen),
-                components['conv_emotion_intensity_row']: gr.update(visible=is_qwen_base),
-                components['qwen_conv_advanced']: gr.update(visible=is_qwen),
+                components['qwen_custom_conv_advanced']: gr.update(visible=is_qwen_custom),
+                components['qwen_base_conv_advanced']: gr.update(visible=is_qwen_base),
                 components['luxtts_settings']: gr.update(visible=is_luxtts),
                 components['vibevoice_settings']: gr.update(visible=is_vibevoice),
                 components['cb_settings']: gr.update(visible=is_chatterbox),
@@ -1619,7 +1711,7 @@ class ConversationTool(Tool):
             outputs=[components['qwen_speaker_table'],
                      components['shared_voices_section'], components['conv_voices_row_5_6'], components['conv_voices_row_7_8'],
                      components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
-                     components['conv_emotion_intensity_row'], components['qwen_conv_advanced'],
+                     components['qwen_custom_conv_advanced'], components['qwen_base_conv_advanced'],
                      components['luxtts_settings'],
                      components['vibevoice_settings'],
                      components['cb_settings'],
@@ -1645,6 +1737,12 @@ class ConversationTool(Tool):
                 components['conv_voice_7'], components['conv_voice_8'],
             ]
         )
+
+        # Restore saved params when accordion is opened
+        for acc_key in ['qwen_custom_conv_accordion', 'qwen_base_conv_accordion', 'vv_conv_accordion', 'lux_conv_accordion', 'cb_conv_accordion']:
+            acc = components.get(acc_key)
+            if acc is not None:
+                acc.expand(restore_fn, outputs=restore_outputs)
 
         # Save preferences
         components['conv_model_type'].change(

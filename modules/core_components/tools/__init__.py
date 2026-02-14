@@ -19,10 +19,10 @@ from modules.core_components.tools import voice_changer
 from modules.core_components.tools import voice_presets
 from modules.core_components.tools import conversation
 from modules.core_components.tools import voice_design
+from modules.core_components.tools import sound_effects
 from modules.core_components.tools import prep_audio
 from modules.core_components.tools import train_model
-from modules.core_components.tools import sound_effects
-from modules.core_components.tools import prompt_manager
+from modules.core_components.tools import prompt_generator
 from modules.core_components.tools import output_history
 from modules.core_components.tools import settings
 
@@ -34,10 +34,10 @@ ALL_TOOLS = {
     'voice_presets': (voice_presets, voice_presets.VoicePresetsTool.config),
     'conversation': (conversation, conversation.ConversationTool.config),
     'voice_design': (voice_design, voice_design.VoiceDesignTool.config),
+    'sound_effects': (sound_effects, sound_effects.SoundEffectsTool.config),
     'prep_audio': (prep_audio, prep_audio.PrepSamplesTool.config),
     'train_model': (train_model, train_model.TrainModelTool.config),
-    'sound_effects': (sound_effects, sound_effects.SoundEffectsTool.config),
-    'prompt_manager': (prompt_manager, prompt_manager.PromptManagerTool.config),
+    'prompt_generator': (prompt_generator, prompt_generator.PromptManagerTool.config),
     'output_history': (output_history, output_history.OutputHistoryTool.config),
     'settings': (settings, settings.SettingsTool.config),
 }
@@ -322,19 +322,6 @@ def load_config():
     except Exception as e:
         print(f"Warning: Could not load config: {e}")
 
-    # Initialize emotions if not present (first launch or corrupted config)
-    if not default_config.get("emotions"):
-        from modules.core_components import CORE_EMOTIONS
-        # Sort alphabetically (case-insensitive)
-        default_config["emotions"] = dict(sorted(CORE_EMOTIONS.items(), key=lambda x: x[0].lower()))
-        # Save config with emotions
-        try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(default_config, f, indent=2)
-            print("Initialized emotions in config")
-        except Exception as e:
-            print(f"Warning: Could not save initial emotions: {e}")
-
     return default_config
 
 
@@ -357,6 +344,109 @@ def save_config(config, key=None, value=None):
     except Exception as e:
         print(f"Warning: Could not save config: {e}")
 
+
+def save_tool_param(config, engine, param_name, value):
+    """Save a single advanced parameter for an engine.
+
+    Stores under config["tool_params"][engine][param_name].
+    Settings are shared across all tools using the same engine.
+
+    Args:
+        config: User config dict (modified in-place and written to disk)
+        engine: Engine identifier, e.g. 'qwen', 'vibevoice', 'luxtts', 'chatterbox'
+        param_name: Parameter name, e.g. 'temperature', 'top_k'
+        value: Parameter value to save
+    """
+    if "tool_params" not in config:
+        config["tool_params"] = {}
+    if engine not in config["tool_params"]:
+        config["tool_params"][engine] = {}
+    config["tool_params"][engine][param_name] = value
+    save_config(config)
+
+
+def load_tool_params(config, engine):
+    """Load saved advanced parameters for an engine.
+
+    Args:
+        config: User config dict
+        engine: Engine identifier, e.g. 'qwen', 'vibevoice'
+
+    Returns:
+        Dict of param_name -> value (empty dict if nothing saved)
+    """
+    return config.get("tool_params", {}).get(engine, {})
+
+
+def wire_param_persistence(components, config, param_map):
+    """Wire auto-save .change() events for advanced parameter components.
+
+    Each parameter component gets a .change() handler that saves its value
+    to config.json whenever the user modifies it. Settings are saved per
+    engine type and shared across all tools.
+
+    Args:
+        components: Dict of component key -> Gradio component
+        config: User config dict (modified in-place on each change)
+        param_map: Dict of engine -> list of (component_key, param_name) tuples
+            e.g. {'qwen': [('qwen_temperature', 'temperature'), ...]}
+    """
+    import gradio as gr
+    for engine, params in param_map.items():
+        for comp_key, param_name in params:
+            if comp_key not in components:
+                continue
+            components[comp_key].change(
+                lambda v, _e=engine, _p=param_name: save_tool_param(config, _e, _p, v),
+                inputs=[components[comp_key]],
+                outputs=[]
+            )
+
+
+def create_param_restore_handler(components, config, param_map):
+    """Create a handler that restores saved params for all engines via gr.update().
+
+    Returns (handler_fn, output_list) suitable for wiring to .select() or .change().
+    The handler reads saved values from config and returns gr.update(value=...) for
+    each parameter component. Settings are loaded per engine and shared across tools.
+
+    Args:
+        components: Dict of component key -> Gradio component
+        config: User config dict
+        param_map: Dict of engine -> list of (component_key, param_name) tuples
+            (same format as wire_param_persistence)
+
+    Returns:
+        Tuple of (handler_fn, output_components_list)
+    """
+    import gradio as gr
+
+    output_list = []
+    ordered_keys = []
+    for engine, params in param_map.items():
+        for comp_key, param_name in params:
+            if comp_key in components:
+                output_list.append(components[comp_key])
+                ordered_keys.append((engine, param_name))
+
+    # Only restore once per session — after first restore, UI already has saved values
+    _restored = [False]
+
+    def handler():
+        if _restored[0]:
+            return [gr.update()] * len(ordered_keys)
+        _restored[0] = True
+        print("Restoring saved engine params")
+        updates = []
+        for engine, param_name in ordered_keys:
+            saved = load_tool_params(config, engine)
+            if saved and param_name in saved:
+                updates.append(gr.update(value=saved[param_name]))
+            else:
+                updates.append(gr.update())
+        return updates
+
+    return handler, output_list
 
 def format_help_html(markdown_text, height="70vh"):
     """Convert markdown to HTML with scrollable container styling that matches Gradio components.
@@ -864,6 +954,22 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         shared_state['_active_emotions'], confirm_val, emotion_name
     )
     shared_state['save_preference'] = lambda k, v: save_config(shared_state['_user_config'], k, v)
+
+    # Audio save utilities
+    from modules.core_components.audio_utils import (
+        save_audio_to_temp, save_result_to_output, convert_audio_format,
+        embed_metadata, read_embedded_metadata
+    )
+    shared_state['save_audio_to_temp'] = save_audio_to_temp
+    shared_state['save_result_to_output'] = save_result_to_output
+    shared_state['convert_audio_format'] = convert_audio_format
+    shared_state['embed_metadata'] = embed_metadata
+    shared_state['read_embedded_metadata'] = read_embedded_metadata
+
+    # Tool param persistence helpers
+    shared_state['load_tool_params'] = load_tool_params
+    shared_state['wire_param_persistence'] = wire_param_persistence
+    shared_state['create_param_restore_handler'] = create_param_restore_handler
 
     # Add managers if provided (for main app)
     if managers:

@@ -82,6 +82,64 @@ class SettingsTool(Tool):
                                         )
 
                             with gr.Column():
+                                gr.Markdown("### Available Voice Clone Engines")
+
+                                # Get TTS_ENGINES from shared_state
+                                TTS_ENGINES = shared_state.get('TTS_ENGINES', {})
+                                engine_settings = _user_config.get("enabled_engines", {})
+
+                                for engine_key, engine_info in TTS_ENGINES.items():
+                                    is_enabled = engine_settings.get(
+                                        engine_key, engine_info.get("default_enabled", True)
+                                    )
+                                    components[f'engine_toggle_{engine_key}'] = gr.Checkbox(
+                                        label=engine_info["label"],
+                                        value=is_enabled,
+                                        interactive=True
+                                    )
+
+                                gr.Markdown("### Available Transcription Engines")
+                                ASR_ENGINES = shared_state.get('ASR_ENGINES', {})
+                                asr_settings = _user_config.get("enabled_asr_engines", {})
+                                with gr.Column():
+                                    for engine_key, engine_info in ASR_ENGINES.items():
+                                        is_enabled = asr_settings.get(
+                                            engine_key, engine_info.get("default_enabled", True)
+                                        )
+                                        components[f'asr_toggle_{engine_key}'] = gr.Checkbox(
+                                            label=engine_info["label"],
+                                            value=is_enabled,
+                                            interactive=True
+                                        )
+
+                                    components['bypass_split_limit'] = gr.Checkbox(
+                                        label="Allow Qwen3 extended audio splitting (beyond 5 min)",
+                                        value=_user_config.get("bypass_split_limit", False),
+                                        info="Qwen3 ASR alignment may be less accurate and \ndemand tons of VRAM for very long audio. Enable with caution.",
+                                        interactive=True
+                                    )
+                            with gr.Column():
+                                gr.Markdown("### llama.cpp (Prompt Manager)")
+
+                                components['settings_llama_cpp_path'] = gr.Textbox(
+                                    label="llama.cpp Location",
+                                    value=_user_config.get("llama_cpp_path", ""),
+                                    info="Path to the folder containing llama-server. Leave empty to use system PATH.",
+                                    placeholder="e.g. C:\\llama.cpp\\build\\bin"
+                                )
+                                components['reset_llama_cpp_path_btn'] = gr.Button("Reset", size="sm")
+
+                                components['settings_llama_models_path'] = gr.Textbox(
+                                    label="Additional LLM Models Folder",
+                                    value=_user_config.get("llama_models_path", ""),
+                                    info="Extra folder to scan for .gguf models (in addition to models/llama/). Downloads go here if set.",
+                                    placeholder="e.g. D:\\models\\gguf"
+                                )
+                                components['reset_llama_models_path_btn'] = gr.Button("Reset", size="sm")
+
+                        with gr.Row():
+                            with gr.Column():
+
                                 gr.Markdown("### Model Optimizations")
                                 components['settings_low_cpu_mem'] = gr.Checkbox(
                                     label="Low CPU Memory Usage (Slower loading time)",
@@ -101,13 +159,9 @@ class SettingsTool(Tool):
                                     value=_user_config.get("skip_engine_check", False),
                                     info="Assumes all engines are available. Faster launch. (Restart required)"
                                 )
-                                gr.Markdown("### Network")
-                                components['settings_listen_on_network'] = gr.Checkbox(
-                                    label="Listen on Network",
-                                    value=_user_config.get("listen_on_network", False),
-                                    info="Allow other devices on your local network to connect. (Restart required)"
-                                )
+
                             with gr.Column():
+
                                 gr.Markdown("### Model Downloading")
                                 components['settings_offline_mode'] = gr.Checkbox(
                                     label="Offline Mode",
@@ -154,73 +208,37 @@ class SettingsTool(Tool):
                                     "LuxTTS": "YatharthS/LuxTTS",
                                 }
 
+                            with gr.Column():
+                                gr.Markdown("### Output")
+                                components['settings_output_format'] = gr.Dropdown(
+                                    label="Output Format",
+                                    choices=["wav", "flac", "mp3"],
+                                    value=_user_config.get("output_format", "wav"),
+                                    info="Format for saved audio files. MP3 uses 320kbps."
+                                )
+                                components['settings_manual_save'] = gr.Checkbox(
+                                    label="Review Before Saving",
+                                    value=_user_config.get("manual_save", False),
+                                    info="Results stay in temp until you click Save.\nLets you keep only the ones you like. (Restart required)"
+                                )
+
                         with gr.Row():
                             with gr.Column():
-                                gr.Markdown("### Available Voice Clone Engines")
-
-                                # Get TTS_ENGINES from shared_state
-                                TTS_ENGINES = shared_state.get('TTS_ENGINES', {})
-                                engine_settings = _user_config.get("enabled_engines", {})
-
-                                for engine_key, engine_info in TTS_ENGINES.items():
-                                    is_enabled = engine_settings.get(
-                                        engine_key, engine_info.get("default_enabled", True)
-                                    )
-                                    components[f'engine_toggle_{engine_key}'] = gr.Checkbox(
-                                        label=engine_info["label"],
-                                        value=is_enabled,
-                                        interactive=True
-                                    )
-
+                                gr.Markdown("### Network")
+                                components['settings_listen_on_network'] = gr.Checkbox(
+                                    label="Listen on Network",
+                                    value=_user_config.get("listen_on_network", False),
+                                    info="Allow other devices on your local network to connect. (Restart required)"
+                                )
+                            with gr.Column():
                                 gr.Markdown("### Audio Notifications")
                                 components['settings_audio_notifications'] = gr.Checkbox(
                                     label="Enable Audio Notifications",
                                     value=_user_config.get("browser_notifications", True),
                                     info="Play sound when audio generation completes"
                                 )
-
                             with gr.Column():
-                                gr.Markdown("### Available Transcription Engines")
-
-                                ASR_ENGINES = shared_state.get('ASR_ENGINES', {})
-                                asr_settings = _user_config.get("enabled_asr_engines", {})
-
-                                with gr.Column():
-                                    for engine_key, engine_info in ASR_ENGINES.items():
-                                        is_enabled = asr_settings.get(
-                                            engine_key, engine_info.get("default_enabled", True)
-                                        )
-                                        components[f'asr_toggle_{engine_key}'] = gr.Checkbox(
-                                            label=engine_info["label"],
-                                            value=is_enabled,
-                                            interactive=True
-                                        )
-
-                                    components['bypass_split_limit'] = gr.Checkbox(
-                                        label="Allow Qwen3 extended audio splitting (beyond 5 min)",
-                                        value=_user_config.get("bypass_split_limit", False),
-                                        info="Qwen3 ASR alignment may be less accurate and \ndemand tons of VRAM for very long audio. Enable with caution.",
-                                        interactive=True
-                                    )
-
-                            with gr.Column():
-                                gr.Markdown("### llama.cpp (Prompt Manager)")
-
-                                components['settings_llama_cpp_path'] = gr.Textbox(
-                                    label="llama.cpp Location",
-                                    value=_user_config.get("llama_cpp_path", ""),
-                                    info="Path to the folder containing llama-server. Leave empty to use system PATH.",
-                                    placeholder="e.g. C:\\llama.cpp\\build\\bin"
-                                )
-                                components['reset_llama_cpp_path_btn'] = gr.Button("Reset", size="sm")
-
-                                components['settings_llama_models_path'] = gr.Textbox(
-                                    label="Additional LLM Models Folder",
-                                    value=_user_config.get("llama_models_path", ""),
-                                    info="Extra folder to scan for .gguf models (in addition to models/llama/). Downloads go here if set.",
-                                    placeholder="e.g. D:\\models\\gguf"
-                                )
-                                components['reset_llama_models_path_btn'] = gr.Button("Reset", size="sm")
+                                gr.Markdown("")
 
                         gr.Markdown("Configure where files are stored. Changes apply after clicking **Apply Changes**.")
                         # Default folder paths
@@ -358,6 +376,20 @@ class SettingsTool(Tool):
         components['settings_audio_notifications'].change(
             lambda x: save_preference("browser_notifications", x),
             inputs=[components['settings_audio_notifications']],
+            outputs=[]
+        )
+
+        # Save output format setting
+        components['settings_output_format'].change(
+            lambda x: save_preference("output_format", x),
+            inputs=[components['settings_output_format']],
+            outputs=[]
+        )
+
+        # Save manual save setting
+        components['settings_manual_save'].change(
+            lambda x: save_preference("manual_save", x),
+            inputs=[components['settings_manual_save']],
             outputs=[]
         )
 

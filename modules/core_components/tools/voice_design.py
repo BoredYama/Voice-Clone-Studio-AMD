@@ -45,7 +45,8 @@ class VoiceDesignTool(Tool):
         _user_config = shared_state.get('_user_config', {})
         create_qwen_advanced_params = shared_state.get('create_qwen_advanced_params')
 
-        with gr.TabItem("Voice Design"):
+        with gr.TabItem("Voice Design") as voice_design_tab:
+            components['voice_design_tab'] = voice_design_tab
             gr.Markdown("Create new voices from natural language descriptions")
 
             with gr.Row():
@@ -118,6 +119,28 @@ class VoiceDesignTool(Tool):
 
         # Get TTS manager (singleton)
         tts_manager = get_tts_manager()
+
+        # Wire param persistence (auto-save on change)
+        wire_param_persistence = shared_state['wire_param_persistence']
+        _user_config = shared_state.get('_user_config', {})
+        param_map = {
+            'qwen_design': [
+                ('do_sample', 'do_sample'),
+                ('temperature', 'temperature'),
+                ('top_k', 'top_k'),
+                ('top_p', 'top_p'),
+                ('repetition_penalty', 'repetition_penalty'),
+                ('max_new_tokens', 'max_new_tokens'),
+            ],
+        }
+        wire_param_persistence(components, _user_config, param_map)
+
+        # Create restore handler for applying saved params on tab select
+        create_param_restore_handler = shared_state['create_param_restore_handler']
+        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, param_map)
+
+        # Restore saved params when accordion is opened
+        components['accordion'].expand(restore_fn, outputs=restore_outputs)
 
         def generate_voice_design_handler(text_to_generate, language, instruct, seed, do_sample, temperature,
                                           top_k, top_p, repetition_penalty, max_new_tokens, progress=gr.Progress()):
@@ -216,8 +239,10 @@ class VoiceDesignTool(Tool):
             except Exception as e:
                 return f"❌ Error saving: {str(e)}"
 
-        # Wire generate button
+        # Wire generate button (restore saved params first, then generate)
         components['design_generate_btn'].click(
+            restore_fn, outputs=restore_outputs
+        ).then(
             generate_voice_design_handler,
             inputs=[components['design_text_input'], components['design_language'], components['design_instruct_input'],
                     components['design_seed'], components['do_sample'], components['temperature'], components['top_k'],
@@ -225,17 +250,33 @@ class VoiceDesignTool(Tool):
             outputs=[components['design_output_audio'], components['design_status'], components['design_save_btn']]
         )
 
-        # Save designed voice - show modal
+        # Save designed voice - show modal (pre-fill label from JSON instruct if available)
+        save_design_modal_js = show_input_modal_js(
+            title="Save Designed Voice",
+            message="Enter a name for this voice design:",
+            placeholder="e.g., Bright-Female, Deep-Male, Cheerful-Voice",
+            context="save_design_"
+        )
+
         components['design_save_btn'].click(
             fn=None,
-            inputs=None,
+            inputs=[components['design_instruct_input']],
             outputs=None,
-            js=show_input_modal_js(
-                title="Save Designed Voice",
-                message="Enter a name for this voice design:",
-                placeholder="e.g., Bright-Female, Deep-Male, Cheerful-Voice",
-                context="save_design_"
-            )
+            js=f"""
+            (instruct) => {{
+                let defaultName = '';
+                if (instruct && instruct.trim()) {{
+                    try {{
+                        const parsed = JSON.parse(instruct.trim());
+                        if (parsed && parsed.label) {{
+                            defaultName = parsed.label;
+                        }}
+                    }} catch(e) {{}}
+                }}
+                const openModal = {save_design_modal_js};
+                openModal(defaultName);
+            }}
+            """
         )
 
         # Handle save designed voice input modal submission
@@ -244,7 +285,7 @@ class VoiceDesignTool(Tool):
                 """Process input modal submission for saving designed voice."""
                 # Context filtering: only process if this is our context
                 if not input_value or not input_value.startswith("save_design_"):
-                    return gr.update()
+                    return gr.update(), gr.update()
 
                 # Extract design name from context prefix
                 # Format: "save_design_<name>_<timestamp>"

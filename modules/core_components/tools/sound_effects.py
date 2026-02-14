@@ -13,7 +13,6 @@ if __name__ == "__main__":
 
 import gradio as gr
 import soundfile as sf
-import shutil
 import random
 import time
 from pathlib import Path
@@ -48,7 +47,7 @@ class SoundEffectsTool(Tool):
             "Medium (44kHz)", "Large v2 (44kHz)"
         ]
 
-        with gr.TabItem("Sound Effects"):
+        with gr.TabItem("SFX"):
             gr.Markdown("Generate sound effects and foley audio from text prompts or video clips")
             # Mode toggle
             components['sfx_mode'] = gr.Radio(
@@ -198,6 +197,9 @@ class SoundEffectsTool(Tool):
         save_preference = shared_state.get('save_preference')
         show_input_modal_js = shared_state['show_input_modal_js']
         input_trigger = shared_state['input_trigger']
+        convert_audio_format = shared_state['convert_audio_format']
+        embed_metadata = shared_state['embed_metadata']
+        user_config = shared_state.get('_user_config', {})
 
         foley_manager = get_foley_manager()
 
@@ -438,10 +440,12 @@ class SoundEffectsTool(Tool):
         )
 
         def get_sfx_existing_files():
-            """Return JSON list of existing WAV file stems in output dir for overwrite detection."""
+            """Return JSON list of existing file stems in output dir for overwrite detection."""
             import json as json_mod
-            names = [f.stem for f in OUTPUT_DIR.glob("*.wav")]
-            return json_mod.dumps(names)
+            names = set()
+            for ext in ('*.wav', '*.flac', '*.mp3'):
+                names.update(f.stem for f in OUTPUT_DIR.glob(ext))
+            return json_mod.dumps(sorted(names))
 
         save_sfx_js = f"""
         (existingFilesJson, suggestedName) => {{
@@ -501,14 +505,14 @@ class SoundEffectsTool(Tool):
                 if not source_path.exists():
                     return "Error: Audio file not found", gr.update()
 
-                output_path = OUTPUT_DIR / f"{clean_name}.wav"
-                shutil.copy2(str(source_path), str(output_path))
+                output_format = user_config.get("output_format", "wav")
+                output_path = OUTPUT_DIR / f"{clean_name}.{output_format}"
+                convert_audio_format(source_path, output_path, output_format)
 
-                # Save metadata
+                # Embed metadata in audio file
                 if metadata_text:
-                    metadata_path = output_path.with_suffix(".txt")
                     metadata_out = '\n'.join(line.lstrip() for line in metadata_text.lstrip().splitlines())
-                    metadata_path.write_text(metadata_out, encoding="utf-8")
+                    embed_metadata(output_path, metadata_out)
 
                 return f"Saved: {output_path.name}", gr.update(interactive=False)
 

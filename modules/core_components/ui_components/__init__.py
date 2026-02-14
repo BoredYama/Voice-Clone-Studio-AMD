@@ -118,7 +118,7 @@ def create_qwen_advanced_params(
         with gr.Row():
             components['repetition_penalty'] = gr.Slider(
                 minimum=1.0,
-                maximum=2.0,
+                maximum=1.99,
                 value=initial_repetition_penalty,
                 step=0.05,
                 label="Repetition Penalty",
@@ -244,7 +244,7 @@ def create_vibevoice_advanced_params(
                     value=initial_sentences_per_chunk,
                     step=1,
                     label="Sentences per Chunk",
-                    info="Split long text into chunks of N sentences (0 = no split). Prevents quality degradation on long prompts."
+                    info="Split long text into chunks. (0 = no split)."
                 )
 
         with gr.Row():
