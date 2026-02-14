@@ -4,6 +4,8 @@ Is a multi model, modular Gradio-based web UI for voice cloning, voice design, m
 
 ![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
 
+<a href="docs/preview.png"><img src="docs/preview.png" alt="Voice Clone Studio Preview" width="600"></a>
+
 ## Architecture
 
 Voice Clone Studio is fully modular. The main file dynamically loads self-contained tools as tabs. Each tool can be enabled or disabled from Settings without touching any code.  It supports multipe engine for voice cloning, as well as Model finetuning. More features are also planned.
