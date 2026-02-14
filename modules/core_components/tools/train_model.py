@@ -83,8 +83,8 @@ class TrainModelTool(Tool):
 
                     components['batch_size_slider'] = gr.Slider(
                         minimum=1,
-                        maximum=50,
-                        value=32,
+                        maximum=10,
+                        value=1,
                         step=1,
                         label="Batch Size",
                         info="Reduce if you get out of memory errors"

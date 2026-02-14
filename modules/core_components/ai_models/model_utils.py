@@ -269,11 +269,25 @@ def get_trained_models(models_dir=None):
             if folder.is_dir():
                 for checkpoint in folder.glob("checkpoint-*"):
                     if checkpoint.is_dir():
+                        # Extract epoch number for sorting
+                        epoch_num = 0
+                        parts = checkpoint.name.split("-")
+                        for i, part in enumerate(parts):
+                            if part == "epoch" and i + 1 < len(parts):
+                                try:
+                                    epoch_num = int(parts[i + 1])
+                                except ValueError:
+                                    pass
                         models.append({
                             'display_name': f"{folder.name} - {checkpoint.name}",
                             'path': str(checkpoint),
-                            'speaker_name': folder.name
+                            'speaker_name': folder.name,
+                            '_epoch': epoch_num
                         })
+    # Sort by speaker name ascending, then epoch descending (highest first)
+    models.sort(key=lambda m: (m['speaker_name'].lower(), -m['_epoch']))
+    for m in models:
+        del m['_epoch']
     return models
 
 
@@ -326,7 +340,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
             pass
 
     # ============== STEP 1: Validation ==============
-    progress(0.0, desc="Step 1/3: Validating dataset...")
+    progress(0.0, desc="Validating dataset...")
 
     if not folder or folder == "(No folders)" or folder == "(Select Dataset)":
         return "Error: Please select a dataset folder"
@@ -370,7 +384,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
     status_log.append("=" * 60)
 
     for i, audio_path in enumerate(audio_files):
-        progress(0.0 + (0.2 * (i + 1) / total), desc=f"Validating {audio_path.name}...")
+        progress(0.0, desc=f"Validating {audio_path.name}...")
 
         txt_path = audio_path.with_suffix(".txt")
 
@@ -393,7 +407,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
                 issues.append(f"[X] {audio_path.name}: Cannot read audio file")
                 continue
 
-            progress(0.0 + (0.2 * (i + 1) / total), desc=f"Converting {audio_path.name}...")
+            progress(0.0, desc=f"Converting {audio_path.name}...")
             temp_output = audio_path.parent / f"temp_{audio_path.name}"
             cmd = [
                 'ffmpeg', '-y', '-i', str(audio_path),
@@ -433,7 +447,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
             status_log.append(f"   ... and {len(issues) - 5} more")
 
     # Ensure reference audio is correct format
-    progress(0.2, desc="Preparing reference audio...")
+    progress(0.0, desc="Preparing reference audio...")
     is_correct, info = check_audio_format(str(ref_audio_path))
     if not is_correct:
         temp_output = ref_audio_path.parent / f"temp_{ref_audio_path.name}"
@@ -450,7 +464,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
             return f"Error: Failed to convert reference audio: {result.stderr[:200]}"
 
     # Generate train_raw.jsonl
-    progress(0.25, desc="Generating train_raw.jsonl...")
+    progress(0.0, desc="Preparing training data...")
     train_raw_path = base_dir / "train_raw.jsonl"
     jsonl_entries = []
 
@@ -479,7 +493,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
     status_log.append("=" * 60)
     status_log.append("STEP 2/3: EXTRACTING AUDIO CODES")
     status_log.append("=" * 60)
-    progress(0.3, desc="Step 2/3: Extracting audio codes...")
+    progress(0.0, desc="Extracting audio codes...")
 
     train_with_codes_path = base_dir / "train_with_codes.jsonl"
     modules_dir = project_root / "modules"
@@ -541,7 +555,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
     status_log.append("=" * 60)
     status_log.append("STEP 3/3: TRAINING MODEL")
     status_log.append("=" * 60)
-    progress(0.5, desc="Step 3/3: Training model (this may take a while)...")
+    progress(0.0, desc="Starting training...")
 
     sft_script = modules_dir / "qwen_finetune" / "sft_12hz.py"
 
@@ -612,6 +626,10 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
             env=env
         )
 
+        # Track steps per epoch to compute accurate progress
+        max_step_seen = 0
+        total_epochs = int(num_epochs)
+
         for line in result.stdout:
             line = line.strip()
             if line:
@@ -620,8 +638,20 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size,
                 if "Epoch" in line and "Step" in line:
                     try:
                         epoch_num = int(line.split("Epoch")[1].split("|")[0].strip())
-                        progress_val = 0.5 + (0.5 * (epoch_num + 1) / int(num_epochs))
-                        progress(progress_val, desc=f"Training: {line[:60]}...")
+                        step_num = int(line.split("Step")[1].split("|")[0].strip())
+                        if step_num > max_step_seen:
+                            max_step_seen = step_num
+                        # Calculate progress: 0.0 to 1.0 based on epoch/step
+                        if max_step_seen > 0:
+                            epoch_progress = (epoch_num * (max_step_seen + 1) + step_num) / (total_epochs * (max_step_seen + 1))
+                        else:
+                            epoch_progress = epoch_num / total_epochs
+                        progress_val = epoch_progress
+                        # Extract loss for the description
+                        loss_str = ""
+                        if "Loss:" in line:
+                            loss_str = " | Loss: " + line.split("Loss:")[1].strip()
+                        progress(progress_val, desc=f"Training: Epoch {epoch_num + 1}/{total_epochs} | Step {step_num}{loss_str}")
                     except Exception:
                         pass
 
