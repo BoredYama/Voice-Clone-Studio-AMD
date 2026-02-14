@@ -205,7 +205,9 @@ class VoiceCloneTool(Tool):
                     # LuxTTS Advanced Parameters
                     is_lux_initial = "LuxTTS" in saved_model
                     create_luxtts_advanced_params = shared_state['create_luxtts_advanced_params']
-                    luxtts_params = create_luxtts_advanced_params(visible=is_lux_initial)
+                    luxtts_params = create_luxtts_advanced_params(
+                        visible=is_lux_initial
+                    )
                     components['luxtts_params_accordion'] = luxtts_params.get('accordion')
                     components['luxtts_num_steps'] = luxtts_params['num_steps']
                     components['luxtts_t_shift'] = luxtts_params['t_shift']
@@ -218,7 +220,9 @@ class VoiceCloneTool(Tool):
                     # Chatterbox Advanced Parameters
                     is_cb_initial = "Chatterbox" in saved_model
                     create_chatterbox_advanced_params = shared_state['create_chatterbox_advanced_params']
-                    cb_params = create_chatterbox_advanced_params(visible=is_cb_initial)
+                    cb_params = create_chatterbox_advanced_params(
+                        visible=is_cb_initial
+                    )
                     components['cb_params_accordion'] = cb_params['accordion']
                     components['cb_exaggeration'] = cb_params['exaggeration']
                     components['cb_cfg_weight'] = cb_params['cfg_weight']
@@ -244,6 +248,15 @@ class VoiceCloneTool(Tool):
                         type="filepath"
                     )
 
+                    # Save button — visible only when "Review Before Saving" is enabled
+                    manual_save = _user_config.get("manual_save", False)
+                    components['save_result_btn'] = gr.Button(
+                        "Save to Output", variant="primary", size="lg",
+                        visible=manual_save, interactive=False
+                    )
+                    # Hidden state for metadata text
+                    components['_result_metadata'] = gr.Textbox(visible=False)
+
                     components['clone_status'] = gr.Textbox(label="Status", interactive=False, lines=2, max_lines=5)
 
         return components
@@ -267,10 +280,60 @@ class VoiceCloneTool(Tool):
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
         OUTPUT_DIR = shared_state['OUTPUT_DIR']
+        TEMP_DIR = shared_state['TEMP_DIR']
         play_completion_beep = shared_state.get('play_completion_beep')
+        save_audio_to_temp = shared_state['save_audio_to_temp']
+        save_result_to_output = shared_state['save_result_to_output']
 
         # Get TTS manager (singleton)
         tts_manager = get_tts_manager()
+
+        # Wire param persistence (auto-save on change)
+        wire_param_persistence = shared_state['wire_param_persistence']
+        _user_config = shared_state['_user_config']
+        param_map = {
+            'qwen': [
+                ('qwen_emotion_preset', 'emotion_preset'),
+                ('qwen_emotion_intensity', 'emotion_intensity'),
+                ('qwen_do_sample', 'do_sample'),
+                ('qwen_temperature', 'temperature'),
+                ('qwen_top_k', 'top_k'),
+                ('qwen_top_p', 'top_p'),
+                ('qwen_repetition_penalty', 'repetition_penalty'),
+                ('qwen_max_new_tokens', 'max_new_tokens'),
+            ],
+            'vibevoice': [
+                ('vv_cfg_scale', 'cfg_scale'),
+                ('vv_num_steps', 'num_steps'),
+                ('vv_do_sample', 'do_sample'),
+                ('vv_sentences_per_chunk', 'sentences_per_chunk'),
+                ('vv_repetition_penalty', 'repetition_penalty'),
+                ('vv_temperature', 'temperature'),
+                ('vv_top_k', 'top_k'),
+                ('vv_top_p', 'top_p'),
+            ],
+            'luxtts': [
+                ('luxtts_num_steps', 'num_steps'),
+                ('luxtts_t_shift', 't_shift'),
+                ('luxtts_speed', 'speed'),
+                ('luxtts_return_smooth', 'return_smooth'),
+                ('luxtts_rms', 'rms'),
+                ('luxtts_ref_duration', 'ref_duration'),
+                ('luxtts_guidance_scale', 'guidance_scale'),
+            ],
+            'chatterbox': [
+                ('cb_exaggeration', 'exaggeration'),
+                ('cb_cfg_weight', 'cfg_weight'),
+                ('cb_temperature', 'temperature'),
+                ('cb_repetition_penalty', 'repetition_penalty'),
+                ('cb_top_p', 'top_p'),
+            ],
+        }
+        wire_param_persistence(components, _user_config, 'voice_clone', param_map)
+
+        # Create restore handler for applying saved params on tab select / model switch
+        create_param_restore_handler = shared_state['create_param_restore_handler']
+        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, 'voice_clone', param_map)
 
         def get_selected_sample_name(lister_value):
             """Extract selected sample name from FileLister value (strips .wav extension)."""
@@ -475,12 +538,9 @@ class VoiceCloneTool(Tool):
                 # Generate unique filename
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_name = "".join(c if c.isalnum() else "_" for c in sample_name)
-                output_file = OUTPUT_DIR / f"{safe_name}_{timestamp}.wav"
+                filename_stem = f"{safe_name}_{timestamp}"
 
-                sf.write(str(output_file), wavs[0], sr)
-
-                # Save metadata file
-                metadata_file = output_file.with_suffix(".txt")
+                # Build metadata text
                 metadata = dedent(f"""\
                     Generated: {timestamp}
                     Sample: {sample_name}
@@ -490,17 +550,30 @@ class VoiceCloneTool(Tool):
                     Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                metadata_file.write_text(metadata_out, encoding="utf-8")
 
-                progress(1.0, desc="Done!")
-                if play_completion_beep:
-                    play_completion_beep()
-                return str(output_file), f"Generated using {engine_display}. {cache_status}\n{seed_msg}"
+                # Always save WAV to temp first
+                temp_path = save_audio_to_temp(wavs[0], sr, TEMP_DIR, filename_stem)
+
+                manual_save = _user_config.get("manual_save", False)
+                if manual_save:
+                    # Leave in temp, user decides whether to save
+                    progress(1.0, desc="Done!")
+                    if play_completion_beep:
+                        play_completion_beep()
+                    return str(temp_path), f"Generated using {engine_display}. {cache_status}\n{seed_msg}\nClick 'Save to Output' to keep this result.", metadata_out, gr.update(interactive=True)
+                else:
+                    # Auto-save to output in chosen format
+                    output_format = _user_config.get("output_format", "wav")
+                    output_path = save_result_to_output(temp_path, OUTPUT_DIR, output_format, metadata_out)
+                    progress(1.0, desc="Done!")
+                    if play_completion_beep:
+                        play_completion_beep()
+                    return str(output_path), f"Generated using {engine_display}. {cache_status}\n{seed_msg}", "", gr.update()
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                return None, f"❌ Error generating audio: {str(e)}"
+                return None, f"❌ Error generating audio: {str(e)}", "", gr.update()
 
         def load_sample_from_lister(lister_value):
             """Load audio, text, and info for the selected sample from FileLister."""
@@ -522,9 +595,20 @@ class VoiceCloneTool(Tool):
             js="() => { setTimeout(() => { const btn = document.querySelector('#voice-clone-sample-audio .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
-        # Auto-refresh samples when tab is selected
+        # Auto-refresh samples when tab is selected (preserve selection)
+        def refresh_samples_keep_selection(lister_value):
+            """Refresh sample list while preserving the current selection."""
+            new_files = get_sample_choices()
+            prev_selected = []
+            if lister_value:
+                prev = lister_value.get("selected", [])
+                new_names = set(new_files)
+                prev_selected = [s for s in prev if s in new_names]
+            return {"files": [{"name": f, "date": ""} for f in new_files], "selected": prev_selected}
+
         components['voice_clone_tab'].select(
-            lambda: get_sample_choices(),
+            refresh_samples_keep_selection,
+            inputs=[components['sample_lister']],
             outputs=[components['sample_lister']]
         )
 
@@ -617,6 +701,8 @@ class VoiceCloneTool(Tool):
             return generate_audio_handler(get_selected_sample_name(lister_value), *args)
 
         components['generate_btn'].click(
+            restore_fn, outputs=restore_outputs
+        ).then(
             generate_from_lister,
             inputs=[components['sample_lister'], components['text_input'], components['language_dropdown'], components['seed_input'], components['clone_model_dropdown'],
                     components['qwen_do_sample'], components['qwen_temperature'], components['qwen_top_k'], components['qwen_top_p'], components['qwen_repetition_penalty'],
@@ -628,7 +714,25 @@ class VoiceCloneTool(Tool):
                     components['cb_exaggeration'], components['cb_cfg_weight'], components['cb_temperature'],
                     components['cb_repetition_penalty'], components['cb_top_p'], components['cb_language_dropdown']],
 
-            outputs=[components['output_audio'], components['clone_status']]
+            outputs=[components['output_audio'], components['clone_status'], components['_result_metadata'], components['save_result_btn']]
+        )
+
+        # Save result button handler
+        def save_result_handler(audio_path, metadata_text):
+            """Save the temp result to output folder in chosen format."""
+            if not audio_path:
+                return "❌ No audio to save.", gr.update()
+            try:
+                output_format = _user_config.get("output_format", "wav")
+                output_path = save_result_to_output(audio_path, OUTPUT_DIR, output_format, metadata_text or None)
+                return f"Saved to: {output_path.name}", gr.update(interactive=False)
+            except Exception as e:
+                return f"❌ Error saving: {str(e)}", gr.update()
+
+        components['save_result_btn'].click(
+            save_result_handler,
+            inputs=[components['output_audio'], components['_result_metadata']],
+            outputs=[components['clone_status'], components['save_result_btn']]
         )
 
         # Toggle language visibility based on model selection
@@ -690,6 +794,12 @@ class VoiceCloneTool(Tool):
             outputs=[components['qwen_emotion_preset'], components['sample_audio'],
                      components['sample_text'], components['sample_info']]
         )
+
+        # Restore saved params when accordion is opened
+        components['qwen_params_accordion'].expand(restore_fn, outputs=restore_outputs)
+        components['vv_params_accordion'].expand(restore_fn, outputs=restore_outputs)
+        components['luxtts_params_accordion'].expand(restore_fn, outputs=restore_outputs)
+        components['cb_params_accordion'].expand(restore_fn, outputs=restore_outputs)
 
 
 # Export for tab registry

@@ -172,6 +172,15 @@ def load_emotions_from_config(config=None):
     if config and "emotions" in config and config["emotions"]:
         emotions = config["emotions"]
         _save_emotions_file(emotions)
+        # Remove stale emotions from config.json after migration
+        del config["emotions"]
+        try:
+            config_file = Path(__file__).parent.parent.parent / "config.json"
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2)
+            print("Migrated emotions from config.json to emotions.json")
+        except Exception:
+            pass
         return emotions
 
     # 3. First time - create emotions.json with core defaults

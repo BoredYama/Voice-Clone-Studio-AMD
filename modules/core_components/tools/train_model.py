@@ -157,9 +157,17 @@ class TrainModelTool(Tool):
             outputs=[components['ref_audio_lister'], components['ref_audio_preview']]
         )
 
-        # Auto-refresh datasets when tab is selected
+        # Auto-refresh datasets when tab is selected (preserve selection)
+        def refresh_datasets_keep_selection(current_folder):
+            """Refresh dataset list while preserving the current selection."""
+            folder_choices = ["(Select Dataset)"] + get_dataset_folders()
+            if current_folder and current_folder in folder_choices:
+                return gr.update(choices=folder_choices, value=current_folder)
+            return gr.update(choices=folder_choices, value="(Select Dataset)")
+
         components['train_tab'].select(
-            lambda: gr.update(choices=["(Select Dataset)"] + get_dataset_folders(), value="(Select Dataset)"),
+            refresh_datasets_keep_selection,
+            inputs=[components['train_folder_dropdown']],
             outputs=[components['train_folder_dropdown']]
         )
 

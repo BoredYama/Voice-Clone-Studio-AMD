@@ -394,3 +394,204 @@ def save_audio_as_sample(audio_file, transcription, sample_name, samples_dir):
 
     except Exception as e:
         return f"[ERROR] Error saving sample: {str(e)}", False
+
+
+def save_audio_to_temp(audio_data, sr, temp_dir, filename_stem):
+    """Save audio data as WAV to the temp directory.
+
+    Args:
+        audio_data: numpy array of audio samples
+        sr: sample rate
+        temp_dir: Path to temp directory
+        filename_stem: filename without extension (e.g. 'bambie_20260210_001059')
+
+    Returns:
+        Path to the saved temp WAV file
+    """
+    temp_path = Path(temp_dir) / f"{filename_stem}.wav"
+    sf.write(str(temp_path), audio_data, sr)
+    return temp_path
+
+
+def convert_audio_format(src_path, dst_path, output_format):
+    """Convert a WAV file to the specified format.
+
+    Args:
+        src_path: Path to source WAV file
+        dst_path: Path to destination file (extension should match format)
+        output_format: 'wav', 'flac', or 'mp3'
+
+    Returns:
+        Path to the converted file
+    """
+    import shutil
+    import subprocess
+
+    src_path = Path(src_path)
+    dst_path = Path(dst_path)
+
+    if output_format == "wav":
+        shutil.copy2(str(src_path), str(dst_path))
+    elif output_format == "flac":
+        # soundfile supports FLAC natively
+        data, sr = sf.read(str(src_path))
+        sf.write(str(dst_path), data, sr, format='FLAC')
+    elif output_format == "mp3":
+        # Use ffmpeg for MP3 encoding at 320kbps
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(src_path), "-b:a", "320k", "-q:a", "0", str(dst_path)],
+                capture_output=True, check=True
+            )
+        except FileNotFoundError:
+            raise RuntimeError("ffmpeg not found. Install ffmpeg to export MP3 files.")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"ffmpeg error: {e.stderr.decode(errors='replace')}")
+    else:
+        raise ValueError(f"Unsupported format: {output_format}")
+
+    return dst_path
+
+
+def save_result_to_output(temp_wav_path, output_dir, output_format, metadata_text=None):
+    """Copy a temp WAV to output directory in the chosen format, with embedded metadata.
+
+    Args:
+        temp_wav_path: Path to the WAV file in temp
+        output_dir: Path to output directory
+        output_format: 'wav', 'flac', or 'mp3'
+        metadata_text: Optional string to embed in the audio file
+
+    Returns:
+        Path to the saved output file
+    """
+    temp_wav_path = Path(temp_wav_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = temp_wav_path.stem
+    ext = output_format if output_format != "wav" else "wav"
+    output_path = output_dir / f"{stem}.{ext}"
+
+    convert_audio_format(temp_wav_path, output_path, output_format)
+
+    # Embed metadata directly in the audio file
+    if metadata_text:
+        embed_metadata(output_path, metadata_text)
+
+    return output_path
+
+
+def embed_metadata(audio_path, metadata_text):
+    """Embed metadata text into an audio file (WAV, FLAC, or MP3).
+
+    Uses mutagen to write metadata as a comment/description tag.
+    The metadata is stored in:
+    - WAV: ID3 COMM (comment) tag
+    - FLAC: Vorbis DESCRIPTION comment
+    - MP3: ID3 COMM (comment) tag
+
+    Args:
+        audio_path: Path to the audio file
+        metadata_text: String to embed
+    """
+    audio_path = Path(audio_path)
+    ext = audio_path.suffix.lower()
+
+    try:
+        if ext == ".wav":
+            from mutagen.wave import WAVE
+            from mutagen.id3 import COMM
+
+            audio = WAVE(str(audio_path))
+            if audio.tags is None:
+                audio.add_tags()
+            audio.tags.add(COMM(encoding=3, lang="eng", desc="metadata", text=metadata_text))
+            audio.save()
+
+        elif ext == ".flac":
+            from mutagen.flac import FLAC
+
+            audio = FLAC(str(audio_path))
+            audio["DESCRIPTION"] = metadata_text
+            audio.save()
+
+        elif ext == ".mp3":
+            from mutagen.mp3 import MP3
+            from mutagen.id3 import COMM, ID3NoHeaderError
+
+            try:
+                audio = MP3(str(audio_path))
+            except ID3NoHeaderError:
+                from mutagen.id3 import ID3
+                audio = MP3(str(audio_path))
+                audio.add_tags()
+
+            if audio.tags is None:
+                audio.add_tags()
+            audio.tags.add(COMM(encoding=3, lang="eng", desc="metadata", text=metadata_text))
+            audio.save()
+
+    except Exception as e:
+        # Fallback: write companion .txt if embedding fails
+        print(f"[WARN] Could not embed metadata in {audio_path.name}: {e}")
+        meta_path = audio_path.with_suffix(".txt")
+        meta_path.write_text(metadata_text, encoding="utf-8")
+
+
+def read_embedded_metadata(audio_path):
+    """Read embedded metadata from an audio file (WAV, FLAC, or MP3).
+
+    Falls back to reading a companion .txt file if no embedded metadata found.
+
+    Args:
+        audio_path: Path to the audio file
+
+    Returns:
+        Metadata string, or None if not found
+    """
+    audio_path = Path(audio_path)
+    ext = audio_path.suffix.lower()
+    embedded = None
+
+    try:
+        if ext == ".wav":
+            from mutagen.wave import WAVE
+            audio = WAVE(str(audio_path))
+            if audio.tags:
+                for key in audio.tags:
+                    if key.startswith("COMM"):
+                        embedded = str(audio.tags[key])
+                        break
+
+        elif ext == ".flac":
+            from mutagen.flac import FLAC
+            audio = FLAC(str(audio_path))
+            desc = audio.get("DESCRIPTION")
+            if desc:
+                embedded = desc[0] if isinstance(desc, list) else str(desc)
+
+        elif ext == ".mp3":
+            from mutagen.mp3 import MP3
+            audio = MP3(str(audio_path))
+            if audio.tags:
+                for key in audio.tags:
+                    if key.startswith("COMM"):
+                        embedded = str(audio.tags[key])
+                        break
+
+    except Exception:
+        pass
+
+    if embedded:
+        return embedded
+
+    # Fallback: read companion .txt file (backward compatibility)
+    txt_path = audio_path.with_suffix(".txt")
+    if txt_path.exists():
+        try:
+            return txt_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+
+    return None

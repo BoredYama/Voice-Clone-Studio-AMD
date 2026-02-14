@@ -17,7 +17,6 @@ if __name__ == "__main__":
 
 import gradio as gr
 import soundfile as sf
-import shutil
 from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
@@ -133,6 +132,9 @@ class VoiceChangerTool(Tool):
         play_completion_beep = shared_state.get('play_completion_beep')
         show_input_modal_js = shared_state['show_input_modal_js']
         input_trigger = shared_state['input_trigger']
+        convert_audio_format = shared_state['convert_audio_format']
+        embed_metadata = shared_state['embed_metadata']
+        user_config = shared_state.get('_user_config', {})
 
         tts_manager = get_tts_manager()
 
@@ -257,9 +259,20 @@ class VoiceChangerTool(Tool):
             js="() => { setTimeout(() => { const btn = document.querySelector('#voice-convert-target-audio .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
-        # Auto-refresh samples when tab is selected
+        # Auto-refresh samples when tab is selected (preserve selection)
+        def refresh_samples_keep_selection(lister_value):
+            """Refresh sample list while preserving the current selection."""
+            new_files = get_sample_choices()
+            prev_selected = []
+            if lister_value:
+                prev = lister_value.get("selected", [])
+                new_names = set(new_files)
+                prev_selected = [s for s in prev if s in new_names]
+            return {"files": [{"name": f, "date": ""} for f in new_files], "selected": prev_selected}
+
         components['voice_changer_tab'].select(
-            lambda: get_sample_choices(),
+            refresh_samples_keep_selection,
+            inputs=[components['target_lister']],
             outputs=[components['target_lister']]
         )
 
@@ -307,20 +320,20 @@ class VoiceChangerTool(Tool):
             if not temp_path or not Path(temp_path).exists():
                 return gr.update(interactive=False), "❌ Temp file not found. Please convert again."
 
-            # Copy to output folder
-            output_path = OUTPUT_DIR / f"{clean_name}.wav"
+            # Copy to output folder in chosen format
+            output_format = user_config.get("output_format", "wav")
+            output_path = OUTPUT_DIR / f"{clean_name}.{output_format}"
             # Avoid overwriting
             counter = 1
             while output_path.exists():
-                output_path = OUTPUT_DIR / f"{clean_name}_{counter}.wav"
+                output_path = OUTPUT_DIR / f"{clean_name}_{counter}.{output_format}"
                 counter += 1
 
-            shutil.copy2(temp_path, output_path)
+            convert_audio_format(temp_path, output_path, output_format)
 
-            # Save metadata
+            # Embed metadata in audio file
             if metadata_text:
-                meta_path = output_path.with_suffix(".txt")
-                meta_path.write_text(metadata_text, encoding="utf-8")
+                embed_metadata(output_path, metadata_text)
 
             return gr.update(interactive=False), f"Saved as {output_path.name}"
 
