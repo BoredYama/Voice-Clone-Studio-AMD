@@ -720,7 +720,7 @@ class PromptManagerTool(Tool):
 
     config = ToolConfig(
         name="Prompt Manager",
-        module_name="prompt_manager",
+        module_name="prompt_generator",
         description="Save, browse, and generate text prompts using an LLM",
         enabled=True,
         category="utility"
@@ -743,8 +743,8 @@ class PromptManagerTool(Tool):
 
         components = {}
 
-        with gr.TabItem("Prompt Manager") as prompt_manager_tab:
-            components['prompt_manager_tab'] = prompt_manager_tab
+        with gr.TabItem("LLM") as prompt_generator_tab:
+            components['prompt_generator_tab'] = prompt_generator_tab
             with gr.Row():
                 # Left column: prompt editor and saved prompts
                 with gr.Column(scale=2):
@@ -816,7 +816,8 @@ class PromptManagerTool(Tool):
                             interactive=True
                         )
 
-                    with gr.Accordion("Advanced Settings", open=False):
+                    with gr.Accordion("Advanced Settings", open=False) as llm_accordion:
+                        components['llm_accordion'] = llm_accordion
                         with gr.Row():
                             components['llm_seed'] = gr.Number(
                                 label="Seed",
@@ -923,6 +924,27 @@ class PromptManagerTool(Tool):
         show_confirmation_modal_js = shared_state.get('show_confirmation_modal_js')
         input_trigger = shared_state.get('input_trigger')
         confirm_trigger = shared_state.get('confirm_trigger')
+
+        # Wire param persistence (auto-save on change)
+        wire_param_persistence = shared_state['wire_param_persistence']
+        param_map = {
+            'llm': [
+                ('llm_temperature', 'temperature'),
+                ('llm_top_k', 'top_k'),
+                ('llm_top_p', 'top_p'),
+                ('llm_min_p', 'min_p'),
+                ('llm_repeat_penalty', 'repeat_penalty'),
+                ('system_prompt_preset', 'system_prompt_preset'),
+            ],
+        }
+        wire_param_persistence(components, user_config, param_map)
+
+        # Create restore handler for applying saved params on accordion expand
+        create_param_restore_handler = shared_state['create_param_restore_handler']
+        restore_fn, restore_outputs = create_param_restore_handler(components, user_config, param_map)
+
+        # Restore saved params when accordion is opened
+        components['llm_accordion'].expand(restore_fn, outputs=restore_outputs)
 
         # --- Select prompt from lister ---
         def load_selected_prompt(lister_value):
@@ -1094,7 +1116,7 @@ class PromptManagerTool(Tool):
             prompt_text = SYSTEM_PROMPTS.get(current_preset, "")
             return gr.update(choices=SYSTEM_PROMPT_CHOICES, value=current_preset), gr.update(value=prompt_text)
 
-        components['prompt_manager_tab'].select(
+        components['prompt_generator_tab'].select(
             on_tab_select,
             inputs=[components['system_prompt_preset']],
             outputs=[components['system_prompt_preset'], components['system_prompt']]
@@ -1228,6 +1250,8 @@ class PromptManagerTool(Tool):
                 return gr.update(), f"Error: {e}", gr.update(), gr.update()
 
         components['generate_btn'].click(
+            restore_fn, outputs=restore_outputs
+        ).then(
             generate_with_llm,
             inputs=[
                 components['llm_instruction'],

@@ -19,10 +19,10 @@ from modules.core_components.tools import voice_changer
 from modules.core_components.tools import voice_presets
 from modules.core_components.tools import conversation
 from modules.core_components.tools import voice_design
+from modules.core_components.tools import sound_effects
 from modules.core_components.tools import prep_audio
 from modules.core_components.tools import train_model
-from modules.core_components.tools import sound_effects
-from modules.core_components.tools import prompt_manager
+from modules.core_components.tools import prompt_generator
 from modules.core_components.tools import output_history
 from modules.core_components.tools import settings
 
@@ -34,10 +34,10 @@ ALL_TOOLS = {
     'voice_presets': (voice_presets, voice_presets.VoicePresetsTool.config),
     'conversation': (conversation, conversation.ConversationTool.config),
     'voice_design': (voice_design, voice_design.VoiceDesignTool.config),
+    'sound_effects': (sound_effects, sound_effects.SoundEffectsTool.config),
     'prep_audio': (prep_audio, prep_audio.PrepSamplesTool.config),
     'train_model': (train_model, train_model.TrainModelTool.config),
-    'sound_effects': (sound_effects, sound_effects.SoundEffectsTool.config),
-    'prompt_manager': (prompt_manager, prompt_manager.PromptManagerTool.config),
+    'prompt_generator': (prompt_generator, prompt_generator.PromptManagerTool.config),
     'output_history': (output_history, output_history.OutputHistoryTool.config),
     'settings': (settings, settings.SettingsTool.config),
 }
@@ -345,52 +345,49 @@ def save_config(config, key=None, value=None):
         print(f"Warning: Could not save config: {e}")
 
 
-def save_tool_param(config, tool_name, engine, param_name, value):
-    """Save a single advanced parameter for a tool/engine combination.
+def save_tool_param(config, engine, param_name, value):
+    """Save a single advanced parameter for an engine.
 
-    Stores under config["tool_params"][tool_name][engine][param_name].
+    Stores under config["tool_params"][engine][param_name].
+    Settings are shared across all tools using the same engine.
 
     Args:
         config: User config dict (modified in-place and written to disk)
-        tool_name: Tool identifier, e.g. 'voice_clone', 'conversation'
         engine: Engine identifier, e.g. 'qwen', 'vibevoice', 'luxtts', 'chatterbox'
         param_name: Parameter name, e.g. 'temperature', 'top_k'
         value: Parameter value to save
     """
     if "tool_params" not in config:
         config["tool_params"] = {}
-    if tool_name not in config["tool_params"]:
-        config["tool_params"][tool_name] = {}
-    if engine not in config["tool_params"][tool_name]:
-        config["tool_params"][tool_name][engine] = {}
-    config["tool_params"][tool_name][engine][param_name] = value
+    if engine not in config["tool_params"]:
+        config["tool_params"][engine] = {}
+    config["tool_params"][engine][param_name] = value
     save_config(config)
 
 
-def load_tool_params(config, tool_name, engine):
-    """Load saved advanced parameters for a tool/engine combination.
+def load_tool_params(config, engine):
+    """Load saved advanced parameters for an engine.
 
     Args:
         config: User config dict
-        tool_name: Tool identifier, e.g. 'voice_clone'
-        engine: Engine identifier, e.g. 'qwen'
+        engine: Engine identifier, e.g. 'qwen', 'vibevoice'
 
     Returns:
         Dict of param_name -> value (empty dict if nothing saved)
     """
-    return config.get("tool_params", {}).get(tool_name, {}).get(engine, {})
+    return config.get("tool_params", {}).get(engine, {})
 
 
-def wire_param_persistence(components, config, tool_name, param_map):
+def wire_param_persistence(components, config, param_map):
     """Wire auto-save .change() events for advanced parameter components.
 
     Each parameter component gets a .change() handler that saves its value
-    to config.json whenever the user modifies it.
+    to config.json whenever the user modifies it. Settings are saved per
+    engine type and shared across all tools.
 
     Args:
         components: Dict of component key -> Gradio component
         config: User config dict (modified in-place on each change)
-        tool_name: Tool identifier, e.g. 'voice_clone'
         param_map: Dict of engine -> list of (component_key, param_name) tuples
             e.g. {'qwen': [('qwen_temperature', 'temperature'), ...]}
     """
@@ -400,24 +397,22 @@ def wire_param_persistence(components, config, tool_name, param_map):
             if comp_key not in components:
                 continue
             components[comp_key].change(
-                lambda v, _t=tool_name, _e=engine, _p=param_name: save_tool_param(config, _t, _e, _p, v),
+                lambda v, _e=engine, _p=param_name: save_tool_param(config, _e, _p, v),
                 inputs=[components[comp_key]],
                 outputs=[]
             )
 
 
-def create_param_restore_handler(components, config, tool_name, param_map):
+def create_param_restore_handler(components, config, param_map):
     """Create a handler that restores saved params for all engines via gr.update().
 
     Returns (handler_fn, output_list) suitable for wiring to .select() or .change().
     The handler reads saved values from config and returns gr.update(value=...) for
-    each parameter component. Components are drawn with hardcoded defaults; this
-    function applies saved values AFTER rendering so Gradio reset buttons still work.
+    each parameter component. Settings are loaded per engine and shared across tools.
 
     Args:
         components: Dict of component key -> Gradio component
         config: User config dict
-        tool_name: Tool identifier, e.g. 'voice_clone'
         param_map: Dict of engine -> list of (component_key, param_name) tuples
             (same format as wire_param_persistence)
 
@@ -441,10 +436,10 @@ def create_param_restore_handler(components, config, tool_name, param_map):
         if _restored[0]:
             return [gr.update()] * len(ordered_keys)
         _restored[0] = True
-        print(f"[{tool_name}] Restoring saved params")
+        print("Restoring saved engine params")
         updates = []
         for engine, param_name in ordered_keys:
-            saved = load_tool_params(config, tool_name, engine)
+            saved = load_tool_params(config, engine)
             if saved and param_name in saved:
                 updates.append(gr.update(value=saved[param_name]))
             else:

@@ -80,7 +80,7 @@ class VoiceCloneTool(Tool):
 
         with gr.TabItem("Voice Clone") as voice_clone_tab:
             components['voice_clone_tab'] = voice_clone_tab
-            gr.Markdown("Clone Voices from Samples. <small>(Use Prep Audio Samples to add samples)</small>")
+            gr.Markdown("Clone Voices from Samples. <small>(Use Prep Samples to add samples)</small>")
             with gr.Row():
                 # Left column - Sample selection (1/3 width)
                 with gr.Column(scale=1):
@@ -158,15 +158,17 @@ class VoiceCloneTool(Tool):
                     # Qwen3 Advanced Parameters (create_qwen_advanced_params includes its own accordion)
                     create_qwen_advanced_params = shared_state['create_qwen_advanced_params']
 
-                    qwen_params = create_qwen_advanced_params(
-                        emotions_dict=_active_emotions,
-                        include_emotion=True,
-                        initial_emotion="(None)",
-                        initial_intensity=1.0,
-                        visible=is_qwen_initial,
-                        emotion_visible=True,
-                        shared_state=shared_state
-                    )
+                    components['qwen_params_col'] = gr.Column(visible=is_qwen_initial)
+                    with components['qwen_params_col']:
+                        qwen_params = create_qwen_advanced_params(
+                            emotions_dict=_active_emotions,
+                            include_emotion=True,
+                            initial_emotion="(None)",
+                            initial_intensity=1.0,
+                            visible=True,
+                            emotion_visible=True,
+                            shared_state=shared_state
+                        )
 
                     # Store the accordion reference for toggling
                     components['qwen_params_accordion'] = qwen_params.get('accordion')
@@ -188,10 +190,12 @@ class VoiceCloneTool(Tool):
                     # VibeVoice Advanced Parameters
                     is_vv_initial = "VibeVoice" in saved_model
                     create_vibevoice_advanced_params = shared_state['create_vibevoice_advanced_params']
-                    vv_params = create_vibevoice_advanced_params(
-                        include_sentences_per_chunk=True,
-                        visible=is_vv_initial
-                    )
+                    components['vv_params_col'] = gr.Column(visible=is_vv_initial)
+                    with components['vv_params_col']:
+                        vv_params = create_vibevoice_advanced_params(
+                            include_sentences_per_chunk=True,
+                            visible=True
+                        )
                     components['vv_params_accordion'] = vv_params['accordion']
                     components['vv_cfg_scale'] = vv_params['cfg_scale']
                     components['vv_num_steps'] = vv_params['num_steps']
@@ -205,9 +209,11 @@ class VoiceCloneTool(Tool):
                     # LuxTTS Advanced Parameters
                     is_lux_initial = "LuxTTS" in saved_model
                     create_luxtts_advanced_params = shared_state['create_luxtts_advanced_params']
-                    luxtts_params = create_luxtts_advanced_params(
-                        visible=is_lux_initial
-                    )
+                    components['luxtts_params_col'] = gr.Column(visible=is_lux_initial)
+                    with components['luxtts_params_col']:
+                        luxtts_params = create_luxtts_advanced_params(
+                            visible=True
+                        )
                     components['luxtts_params_accordion'] = luxtts_params.get('accordion')
                     components['luxtts_num_steps'] = luxtts_params['num_steps']
                     components['luxtts_t_shift'] = luxtts_params['t_shift']
@@ -220,9 +226,11 @@ class VoiceCloneTool(Tool):
                     # Chatterbox Advanced Parameters
                     is_cb_initial = "Chatterbox" in saved_model
                     create_chatterbox_advanced_params = shared_state['create_chatterbox_advanced_params']
-                    cb_params = create_chatterbox_advanced_params(
-                        visible=is_cb_initial
-                    )
+                    components['cb_params_col'] = gr.Column(visible=is_cb_initial)
+                    with components['cb_params_col']:
+                        cb_params = create_chatterbox_advanced_params(
+                            visible=True
+                        )
                     components['cb_params_accordion'] = cb_params['accordion']
                     components['cb_exaggeration'] = cb_params['exaggeration']
                     components['cb_cfg_weight'] = cb_params['cfg_weight']
@@ -292,7 +300,7 @@ class VoiceCloneTool(Tool):
         wire_param_persistence = shared_state['wire_param_persistence']
         _user_config = shared_state['_user_config']
         param_map = {
-            'qwen': [
+            'qwen_base': [
                 ('qwen_emotion_preset', 'emotion_preset'),
                 ('qwen_emotion_intensity', 'emotion_intensity'),
                 ('qwen_do_sample', 'do_sample'),
@@ -329,11 +337,11 @@ class VoiceCloneTool(Tool):
                 ('cb_top_p', 'top_p'),
             ],
         }
-        wire_param_persistence(components, _user_config, 'voice_clone', param_map)
+        wire_param_persistence(components, _user_config, param_map)
 
         # Create restore handler for applying saved params on tab select / model switch
         create_param_restore_handler = shared_state['create_param_restore_handler']
-        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, 'voice_clone', param_map)
+        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, param_map)
 
         def get_selected_sample_name(lister_value):
             """Extract selected sample name from FileLister value (strips .wav extension)."""
@@ -357,10 +365,10 @@ class VoiceCloneTool(Tool):
                                    progress=gr.Progress()):
             """Generate audio using voice cloning - supports Qwen, VibeVoice, and LuxTTS engines."""
             if not sample_name:
-                return None, "Please select a voice sample first."
+                return None, "Please select a voice sample first.", "", gr.update()
 
             if not text_to_generate or not text_to_generate.strip():
-                return None, "Please enter text to generate."
+                return None, "Please enter text to generate.", "", gr.update()
 
             # Parse model selection to determine engine and size
             if "LuxTTS" in model_selection:
@@ -396,16 +404,16 @@ class VoiceCloneTool(Tool):
                     break
 
             if not sample:
-                return None, f"❌ Sample '{sample_name}' not found."
+                return None, f"❌ Sample '{sample_name}' not found.", "", gr.update()
 
             # Check that sample has a transcript (required for all engines)
             sample_ref_text = sample.get("ref_text") or sample.get("meta", {}).get("Text", "")
             if not sample_ref_text.strip():
                 return None, (
                     f"❌ No transcript found for sample '{sample_name}'.\n\n"
-                    "Please transcribe this sample first in the **Prep Audio** tab "
+                    "Please transcribe this sample first in the **Prep Samples** tab "
                     "(using Whisper or VibeVoice ASR), then try again."
-                )
+                ), "", gr.update()
 
             try:
                 # Set the seed for reproducibility
@@ -582,6 +590,7 @@ class VoiceCloneTool(Tool):
                 return None, "", ""
             return load_sample_details(sample_name)
 
+
         # Connect event handlers for Voice Clone tab
         components['sample_lister'].change(
             load_sample_from_lister,
@@ -747,7 +756,7 @@ class VoiceCloneTool(Tool):
             outputs=[components['language_row'], components['cb_language_row']]
         )
 
-        # Toggle accordion visibility based on engine
+        # Toggle accordion visibility based on engine (toggle parent Column, not accordion)
         def toggle_engine_params(model_selection):
             is_qwen = "Qwen" in model_selection
             is_vv = "VibeVoice" in model_selection
@@ -758,7 +767,7 @@ class VoiceCloneTool(Tool):
         components['clone_model_dropdown'].change(
             toggle_engine_params,
             inputs=[components['clone_model_dropdown']],
-            outputs=[components['qwen_params_accordion'], components['vv_params_accordion'], components['luxtts_params_accordion'], components['cb_params_accordion']]
+            outputs=[components['qwen_params_col'], components['vv_params_col'], components['luxtts_params_col'], components['cb_params_col']]
         )
 
         # Save voice clone model selection

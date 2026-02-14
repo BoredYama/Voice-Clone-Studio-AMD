@@ -83,8 +83,8 @@ class TrainModelTool(Tool):
 
                     components['batch_size_slider'] = gr.Slider(
                         minimum=1,
-                        maximum=8,
-                        value=2,
+                        maximum=50,
+                        value=32,
                         step=1,
                         label="Batch Size",
                         info="Reduce if you get out of memory errors"
@@ -101,7 +101,7 @@ class TrainModelTool(Tool):
                     components['num_epochs_slider'] = gr.Slider(
                         minimum=1,
                         maximum=100,
-                        value=5,
+                        value=10,
                         step=1,
                         label="Number of Epochs",
                         info="How many times to train on the full dataset"

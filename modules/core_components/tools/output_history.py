@@ -62,7 +62,7 @@ class OutputHistoryTool(Tool):
                 result.append({"name": f.name, "date": date_str})
             return result
 
-        with gr.TabItem("Output History") as tab:
+        with gr.TabItem("Output") as tab:
             components['tab'] = tab
             gr.Markdown("Browse and manage previously generated audio files")
             with gr.Row():

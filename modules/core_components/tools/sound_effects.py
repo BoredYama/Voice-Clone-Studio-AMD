@@ -47,7 +47,7 @@ class SoundEffectsTool(Tool):
             "Medium (44kHz)", "Large v2 (44kHz)"
         ]
 
-        with gr.TabItem("Sound Effects"):
+        with gr.TabItem("SFX"):
             gr.Markdown("Generate sound effects and foley audio from text prompts or video clips")
             # Mode toggle
             components['sfx_mode'] = gr.Radio(

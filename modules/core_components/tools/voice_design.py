@@ -124,7 +124,7 @@ class VoiceDesignTool(Tool):
         wire_param_persistence = shared_state['wire_param_persistence']
         _user_config = shared_state.get('_user_config', {})
         param_map = {
-            'qwen': [
+            'qwen_design': [
                 ('do_sample', 'do_sample'),
                 ('temperature', 'temperature'),
                 ('top_k', 'top_k'),
@@ -133,11 +133,11 @@ class VoiceDesignTool(Tool):
                 ('max_new_tokens', 'max_new_tokens'),
             ],
         }
-        wire_param_persistence(components, _user_config, 'voice_design', param_map)
+        wire_param_persistence(components, _user_config, param_map)
 
         # Create restore handler for applying saved params on tab select
         create_param_restore_handler = shared_state['create_param_restore_handler']
-        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, 'voice_design', param_map)
+        restore_fn, restore_outputs = create_param_restore_handler(components, _user_config, param_map)
 
         # Restore saved params when accordion is opened
         components['accordion'].expand(restore_fn, outputs=restore_outputs)
@@ -285,7 +285,7 @@ class VoiceDesignTool(Tool):
                 """Process input modal submission for saving designed voice."""
                 # Context filtering: only process if this is our context
                 if not input_value or not input_value.startswith("save_design_"):
-                    return gr.update()
+                    return gr.update(), gr.update()
 
                 # Extract design name from context prefix
                 # Format: "save_design_<name>_<timestamp>"

@@ -43,6 +43,7 @@ class VoiceChangerTool(Tool):
         components = {}
 
         get_sample_choices = shared_state['get_sample_choices']
+        DEEPFILTER_AVAILABLE = shared_state['DEEPFILTER_AVAILABLE']
 
         with gr.TabItem("Voice Changer") as voice_changer_tab:
             components['voice_changer_tab'] = voice_changer_tab
@@ -91,9 +92,15 @@ class VoiceChangerTool(Tool):
 
                     components['source_audio'] = gr.Audio(
                         label="Upload or record the audio whose voice you want to change",
-                        type="numpy",
+                        type="filepath",
                         sources=["upload", "microphone"],
                     )
+
+                    with gr.Row():
+                        components['vc_clear_btn'] = gr.Button("Clear", scale=1, size="sm")
+                        components['vc_clean_btn'] = gr.Button("AI Denoise", scale=2, size="sm", visible=DEEPFILTER_AVAILABLE)
+                        components['vc_normalize_btn'] = gr.Button("Normalize Volume", scale=2, size="sm")
+                        components['vc_mono_btn'] = gr.Button("Convert to Mono", scale=2, size="sm")
 
                     components['convert_btn'] = gr.Button(
                         "Convert Voice", variant="primary", size="lg"
@@ -136,6 +143,11 @@ class VoiceChangerTool(Tool):
         embed_metadata = shared_state['embed_metadata']
         user_config = shared_state.get('_user_config', {})
 
+        # Audio processing utilities
+        normalize_audio = shared_state['normalize_audio']
+        convert_to_mono = shared_state['convert_to_mono']
+        clean_audio = shared_state['clean_audio']
+
         tts_manager = get_tts_manager()
 
         def get_selected_sample_name(lister_value):
@@ -160,9 +172,6 @@ class VoiceChangerTool(Tool):
             if source_audio is None:
                 return None, gr.update(interactive=False), None, "", "", "Please upload or record source audio."
 
-            # source_audio is (sample_rate, numpy_array) from gr.Audio(type="numpy")
-            src_sr, src_data = source_audio
-
             target_name = get_selected_sample_name(target_lister_value)
             if not target_name:
                 return None, gr.update(interactive=False), None, "", "", "Please select a target voice sample."
@@ -182,13 +191,8 @@ class VoiceChangerTool(Tool):
             try:
                 progress(0.1, desc="Loading Chatterbox VC model...")
 
-                # Save source numpy audio to a temp WAV (Chatterbox VC expects a file path)
-                import numpy as np
-                src_temp = str(TEMP_DIR / "_vc_source_input.wav")
-                # Gradio may return int16/int32 — convert to float for soundfile
-                if src_data.dtype in (np.int16, np.int32):
-                    src_data = src_data.astype(np.float32) / np.iinfo(src_data.dtype).max
-                sf.write(src_temp, src_data, src_sr)
+                # source_audio is a filepath from gr.Audio(type="filepath")
+                src_temp = source_audio
 
                 progress(0.4, desc="Converting voice...")
                 audio_data, sr = tts_manager.generate_voice_convert_chatterbox(
@@ -231,7 +235,12 @@ class VoiceChangerTool(Tool):
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                return None, gr.update(interactive=False), None, "", "", f"❌ Error: {str(e)}"
+                msg = str(e)
+                if "Content-Length" in msg or "Too little data" in msg:
+                    msg = "Recording too short. Please record at least 10 seconds of audio."
+                else:
+                    msg = f"❌ Error: {msg}"
+                return None, gr.update(interactive=False), None, "", "", msg
 
         components['convert_btn'].click(
             convert_voice,
@@ -244,6 +253,30 @@ class VoiceChangerTool(Tool):
                 components['metadata_text'],
                 components['convert_status'],
             ]
+        )
+
+        # --- Audio processing buttons ---
+        components['vc_clear_btn'].click(
+            lambda: (None, ""),
+            outputs=[components['source_audio'], components['convert_status']]
+        )
+
+        components['vc_normalize_btn'].click(
+            normalize_audio,
+            inputs=[components['source_audio']],
+            outputs=[components['source_audio'], components['convert_status']]
+        )
+
+        components['vc_mono_btn'].click(
+            convert_to_mono,
+            inputs=[components['source_audio']],
+            outputs=[components['source_audio'], components['convert_status']]
+        )
+
+        components['vc_clean_btn'].click(
+            clean_audio,
+            inputs=[components['source_audio']],
+            outputs=[components['source_audio'], components['convert_status']]
         )
 
         # Target voice preview + text + info

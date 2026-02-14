@@ -1,6 +1,21 @@
 # Version History
 
 ## February 14, 2026
+#### Version 1.7.5 - Bug Fixes & Polish
+
+**Persistent Settings Improvements**
+- **Per-Model-Type Storage** - Advanced parameters now save separately for each Qwen model type (Base, Speakers, Trained, Design) instead of a shared "qwen" bucket
+- **Independent Restore** - Switching between model types restores the correct saved parameters for each one
+- **Accordion Visibility Fix** - Fixed advanced parameter sliders resetting to defaults when switching engines, by toggling wrapper visibility instead of accordion visibility
+
+**Bug Fixes**
+- **Fixed Return Value Mismatches** - Corrected early-return paths in Voice Clone and Voice Design that returned fewer values than expected, causing Gradio errors when validation failed
+- **Voice Changer Recording Error** - Gracefully handles Gradio's microphone recording bug (short recordings causing Content-Length errors) with a clear status message instead of a crash
+
+**UI Polish**
+- **Shorter Tab Names** - Trimmed tool tab labels to prevent overflow when many tools are enabled
+
+## February 14, 2026
 #### Version 1.7.0 - Output Formats, Embedded Metadata & Persistent Settings
 
 **Output Format Selection**

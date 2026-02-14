@@ -68,7 +68,7 @@ class PrepSamplesTool(Tool):
         # Let's hide dataset if train model is off
         train_model_enabled = _user_config.get("enabled_tools", {}).get("Train Model", True)
 
-        with gr.TabItem("Prep Audio Samples") as prep_tab:
+        with gr.TabItem("Prep Samples") as prep_tab:
             components['prep_tab'] = prep_tab
             if train_model_enabled is True:
                 gr.Markdown("Prepare audio samples for voice cloning or finetuning datasets.")

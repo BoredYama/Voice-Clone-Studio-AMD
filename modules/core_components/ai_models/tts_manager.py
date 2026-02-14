@@ -388,11 +388,11 @@ class TTSManager:
             language=language if language != "Auto" else "Auto",
             instruct=instruct.strip(),
             do_sample=do_sample,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            max_new_tokens=max_new_tokens
+            temperature=float(temperature),
+            top_k=int(top_k),
+            top_p=float(top_p),
+            repetition_penalty=float(repetition_penalty),
+            max_new_tokens=int(max_new_tokens)
         )
 
         # Convert to numpy if needed
@@ -446,11 +446,11 @@ class TTSManager:
             "language": language if language != "Auto" else "Auto",
             "speaker": speaker,
             "do_sample": do_sample,
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
-            "repetition_penalty": repetition_penalty,
-            "max_new_tokens": max_new_tokens
+            "temperature": float(temperature),
+            "top_k": int(top_k),
+            "top_p": float(top_p),
+            "repetition_penalty": float(repetition_penalty),
+            "max_new_tokens": int(max_new_tokens)
         }
         if instruct and instruct.strip():
             kwargs["instruct"] = instruct.strip()
@@ -595,13 +595,13 @@ class TTSManager:
             }
             if do_sample:
                 gen_kwargs['do_sample'] = True
-                gen_kwargs['temperature'] = temperature
+                gen_kwargs['temperature'] = float(temperature)
                 if top_k > 0:
                     gen_kwargs['top_k'] = int(top_k)
                 if top_p < 1.0:
-                    gen_kwargs['top_p'] = top_p
+                    gen_kwargs['top_p'] = float(top_p)
                 if repetition_penalty != 1.0:
-                    gen_kwargs['repetition_penalty'] = repetition_penalty
+                    gen_kwargs['repetition_penalty'] = float(repetition_penalty)
 
             wavs, sr = model.generate_voice_clone(
                 text=text.strip(),
@@ -622,11 +622,11 @@ class TTSManager:
                 "language": language if language != "Auto" else "Auto",
                 "speaker": speaker_name,
                 "do_sample": do_sample,
-                "temperature": temperature,
-                "top_k": top_k,
-                "top_p": top_p,
-                "repetition_penalty": repetition_penalty,
-                "max_new_tokens": max_new_tokens
+                "temperature": float(temperature),
+                "top_k": int(top_k),
+                "top_p": float(top_p),
+                "repetition_penalty": float(repetition_penalty),
+                "max_new_tokens": int(max_new_tokens)
             }
             if instruct and instruct.strip():
                 kwargs["instruct"] = instruct.strip()
@@ -682,13 +682,13 @@ class TTSManager:
         }
         if do_sample:
             gen_kwargs['do_sample'] = True
-            gen_kwargs['temperature'] = temperature
+            gen_kwargs['temperature'] = float(temperature)
             if top_k > 0:
                 gen_kwargs['top_k'] = int(top_k)
             if top_p < 1.0:
-                gen_kwargs['top_p'] = top_p
+                gen_kwargs['top_p'] = float(top_p)
             if repetition_penalty != 1.0:
-                gen_kwargs['repetition_penalty'] = repetition_penalty
+                gen_kwargs['repetition_penalty'] = float(repetition_penalty)
 
         # Generate using the cached prompt
         wavs, sr = model.generate_voice_clone(
@@ -804,13 +804,13 @@ class TTSManager:
         # Build generation config
         gen_config = {'do_sample': do_sample}
         if do_sample:
-            gen_config['temperature'] = temperature
+            gen_config['temperature'] = float(temperature)
             if top_k > 0:
                 gen_config['top_k'] = int(top_k)
             if top_p < 1.0:
-                gen_config['top_p'] = top_p
+                gen_config['top_p'] = float(top_p)
             if repetition_penalty != 1.0:
-                gen_config['repetition_penalty'] = repetition_penalty
+                gen_config['repetition_penalty'] = float(repetition_penalty)
 
         sr = 24000  # VibeVoice uses 24kHz
         device = get_device()

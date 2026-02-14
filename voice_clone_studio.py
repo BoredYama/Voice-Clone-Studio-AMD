@@ -253,7 +253,7 @@ def create_ui():
             _foley_manager.unload_all()
             # Stop llama.cpp server if running
             try:
-                from modules.core_components.tools.prompt_manager import _stop_server
+                from modules.core_components.tools.prompt_generator import _stop_server
                 _stop_server()
             except Exception:
                 pass
