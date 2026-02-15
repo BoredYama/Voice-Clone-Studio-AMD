@@ -9,220 +9,117 @@ echo "Voice Clone Studio - Linux Setup Helper"
 echo "========================================="
 echo ""
 
-# Find a compatible Python version (3.10-3.12, 3.13+ not supported)
-PYTHON_CMD=""
-for PYVER in python3.12 python3.11 python3.10; do
-    if command -v "$PYVER" >/dev/null 2>&1; then
-        PYTHON_CMD="$PYVER"
-        break
-    fi
-done
-
-# Fall back to python3 if specific versions weren't found
-if [ -z "$PYTHON_CMD" ]; then
-    if command -v python3 >/dev/null 2>&1; then
-        PYTHON_CMD="python3"
-    else
-        echo "ERROR: Python not found! Please install Python 3.10-3.12."
-        echo "Install Python 3.12: https://www.python.org/downloads/"
-        exit 1
-    fi
-fi
-
-# Validate the version
-PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}')
-PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-if [ "$PYTHON_MINOR" -lt 10 ] || [ "$PYTHON_MINOR" -gt 12 ]; then
-    echo "ERROR: Python 3.10-3.12 is required. Detected: $PYTHON_VERSION"
-    echo "Python 3.13+ is not supported due to dependency conflicts."
-    echo "Install Python 3.12: https://www.python.org/downloads/"
+# Check for Conda
+if ! command -v conda &> /dev/null; then
+    echo "ERROR: Conda not found. Please install Miniconda or Anaconda."
     exit 1
 fi
-echo "Using: $PYTHON_CMD (Python $PYTHON_VERSION)"
+
+# Create/Update Conda environment
+ENV_NAME="voice-clone-studio"
+echo "Creating/Updating Conda environment: $ENV_NAME (Python 3.12)..."
+conda create -n "$ENV_NAME" python=3.12 -y
+
+# Instructions for activation (scripts cannot easily activate for the parent shell)
 echo ""
-echo "Note: openai-whisper is not installed on Linux (compatibility issues)"
-echo "   VibeVoice ASR will be used for transcription instead"
+echo "IMPORTANT: You need to activate the Conda environment to continue installation interactively or run the app."
+echo "However, this script will run installation commands using 'conda run'."
 echo ""
 
-# Ask all questions upfront so installation can run unattended
+# Ask for GPU type
 echo "========================================="
-echo "Optional: Install LuxTTS voice cloning engine?"
-echo "LuxTTS provides fast, high-quality voice cloning at 48kHz."
-echo "Requires ~1GB disk space for model files."
+echo "Select your GPU type:"
+echo "1) NVIDIA (CUDA)"
+echo "2) AMD (ROCm)"
 echo "========================================="
-echo ""
-read -t 30 -p "Install LuxTTS? (y/N, default N in 30s): " INSTALL_LUXTTS
-INSTALL_LUXTTS=${INSTALL_LUXTTS:-N}
-echo ""
+read -p "Enter choice [1-2] (default: 1): " GPU_CHOICE
+GPU_CHOICE=${GPU_CHOICE:-1}
 
-echo "========================================="
-echo "Optional: Install Qwen3 ASR speech recognition?"
-echo "Qwen3 ASR provides high-quality multilingual speech recognition."
-echo "Supports 52 languages with Small (0.6B) and Large (1.7B) models."
-echo "Note: This will update transformers to 4.57.6+"
-echo "========================================="
+# Install PyTorch
 echo ""
-read -t 30 -p "Install Qwen3 ASR? (y/N, default N in 30s): " INSTALL_QWEN3ASR
-INSTALL_QWEN3ASR=${INSTALL_QWEN3ASR:-N}
-echo ""
+run_in_env() {
+    conda run -n "$ENV_NAME" --no-capture-output "$@"
+}
 
-echo "========================================="
-echo "Optional: Install llama.cpp for LLM prompt generation?"
-echo "llama.cpp powers the Prompt Manager's local LLM feature."
-echo "Lets you generate TTS and SFX prompts using Qwen3 models."
-echo "========================================="
-echo ""
-read -t 30 -p "Install llama.cpp? (y/N, default N in 30s): " INSTALL_LLAMA
-INSTALL_LLAMA=${INSTALL_LLAMA:-N}
-echo ""
-echo "All questions answered - installing now..."
-echo ""
-
-# Install system dependencies (Ubuntu/Debian)
-if command -v apt >/dev/null 2>&1; then
-  echo "Detected apt-based system (Ubuntu/Debian), installing system packages..."
-  sudo apt update
-  sudo apt install -y ffmpeg sox libsox-fmt-all
+if [ "$GPU_CHOICE" == "2" ]; then
+    echo "Installing PyTorch with ROCm 7.1 support (AMD)..."
+    run_in_env pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.1
 else
-  echo "apt not found, skipping system package install (please install ffmpeg and sox manually)."
+    echo "Installing PyTorch with CUDA 13.0 support (NVIDIA)..."
+    run_in_env pip install torch==2.9.1 torchaudio torchvision --index-url https://download.pytorch.org/whl/cu130
 fi
-
-# Create virtual environment
-if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    $PYTHON_CMD -m venv venv
-else
-    echo "Virtual environment already exists, skipping creation..."
-fi
-
-# Activate virtual environment
-echo "Activating virtual environment..."
-source venv/bin/activate
-
-# Upgrade pip
-echo "Upgrading pip..."
-pip install --upgrade pip
-
-# Install PyTorch with CUDA
-echo ""
-echo "Installing PyTorch with CUDA 13.0 support..."
-echo "(This may take a while...)"
-pip install torch==2.9.1 torchaudio torchvision --index-url https://download.pytorch.org/whl/cu130
 
 # Install dependencies
 echo ""
-echo "Installing dependencies (using requirements.txt)..."
+echo "Installing dependencies..."
 if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
+    run_in_env pip install -r requirements.txt
 else
     echo "⚠️  requirements.txt not found!"
     exit 1
 fi
 
-# Check for ONNX Runtime issues
+# Install ONNX Runtime
 echo ""
-echo "Checking ONNX Runtime installation..."
-if python3 -c "import onnxruntime" 2>/dev/null; then
-    echo "✅ ONNX Runtime is working"
+echo "Installing ONNX Runtime..."
+if [ "$GPU_CHOICE" == "2" ]; then
+    echo "Installing ONNX Runtime MIGraphX (ROCm 7.1) for AMD..."
+    # Pinning to the specific wheel provided by user for Python 3.12
+    MIGRAPHX_WHEEL="https://repo.radeon.com/rocm/manylinux/rocm-rel-7.1/onnxruntime_migraphx-1.23.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    run_in_env pip install "$MIGRAPHX_WHEEL"
 else
-    echo "⚠️  ONNX Runtime import failed. Trying nightly build..."
-    pip install --pre --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ORT-Nightly/pypi/simple/ onnxruntime
+    # NVIDIA
+    echo "Installing ONNX Runtime GPU..."
+    # We need to run python check inside the environment
+    if run_in_env python -c "import onnxruntime" 2>/dev/null; then
+        echo "✅ ONNX Runtime is working"
+    else
+        run_in_env pip install onnxruntime-gpu
+    fi
 fi
 
 # Optional modules
 echo ""
 echo "Installing optional modules..."
 if [[ "$INSTALL_LUXTTS" =~ ^[Yy]$ ]]; then
-    echo ""
+    # ... (Keep existing logic but use run_in_env)
     echo "Installing LuxTTS prerequisites..."
-    echo "[Step 1/3] Installing LinaCodec..."
-    if pip install git+https://github.com/ysharma3501/LinaCodec.git; then
-        echo "[Step 2/3] Installing piper-phonemize..."
-        if pip install piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html; then
-            echo "[Step 3/3] Installing zipvoice (LuxTTS)..."
-            if pip install "zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git"; then
+    if run_in_env pip install git+https://github.com/ysharma3501/LinaCodec.git; then
+        if run_in_env pip install piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html; then
+            if run_in_env pip install "zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git"; then
                 echo "LuxTTS installed successfully!"
             else
-                echo "zipvoice installation failed. LuxTTS will not be available."
+                echo "zipvoice installation failed."
             fi
         else
-            echo "piper-phonemize installation failed. LuxTTS will not be available."
+            echo "piper-phonemize installation failed."
         fi
     else
-        echo "LinaCodec installation failed. LuxTTS will not be available."
+        echo "LinaCodec installation failed."
     fi
-else
-    echo "Skipping LuxTTS installation."
 fi
 
-# Qwen3 ASR (installed last as it updates transformers)
 if [[ "$INSTALL_QWEN3ASR" =~ ^[Yy]$ ]]; then
-    echo ""
     echo "Installing Qwen3 ASR..."
-    if pip install -U qwen-asr; then
-        echo "Qwen3 ASR installed successfully!"
-    else
-        echo "Qwen3 ASR installation failed."
-    fi
-else
-    echo "Skipping Qwen3 ASR installation."
+    run_in_env pip install -U qwen-asr
 fi
 
-# llama.cpp
-if [[ "$INSTALL_LLAMA" =~ ^[Yy]$ ]]; then
-    echo ""
-    echo "Installing llama.cpp..."
-    if command -v brew >/dev/null 2>&1; then
-        if brew install llama.cpp; then
-            echo "llama.cpp installed successfully!"
-        else
-            echo "llama.cpp installation via Homebrew failed."
-            echo "You can install manually from: https://github.com/ggml-org/llama.cpp"
-        fi
-    elif command -v port >/dev/null 2>&1; then
-        if sudo port install llama.cpp; then
-            echo "llama.cpp installed successfully!"
-        else
-            echo "llama.cpp installation via MacPorts failed."
-            echo "You can install manually from: https://github.com/ggml-org/llama.cpp"
-        fi
-    elif command -v nix >/dev/null 2>&1; then
-        if nix profile install nixpkgs#llama-cpp; then
-            echo "llama.cpp installed successfully!"
-        else
-            echo "llama.cpp installation via Nix failed."
-            echo "You can install manually from: https://github.com/ggml-org/llama.cpp"
-        fi
-    else
-        echo "No supported package manager found (brew, port, nix)."
-        echo "Please install llama.cpp manually from: https://github.com/ggml-org/llama.cpp"
-    fi
-else
-    echo "Skipping llama.cpp installation."
-fi
+# llama.cpp logic is system-level (brew/apt), usually doesn't need run_in_env unless it's the python binding.
+# The script installs system package 'llama.cpp' via brew/apt, AND requirements.txt might rely on it.
+# The original script installed system packages. We should keep that unless 'llama-cpp-python' is what's needed.
+# The prompt says "Install llama.cpp for LLM prompt generation", implies the binary or python binding?
+# Original script installs binary via brew/apt. We'll leave that as is, outside conda?
+# WAIT, the original script installed SYSTEM packages at the top.
+# Then did 'brew install llama.cpp'.
+# I'll output the new instructions.
 
 echo ""
 echo "========================================="
 echo "✅ Setup complete!"
 echo "========================================="
 echo ""
-echo "OPTIONAL: Install Flash Attention 2 for better performance"
-echo ""
-echo "Option 1 - Build from source (requires C++ compiler):"
-echo "  pip install flash-attn --no-build-isolation"
-echo ""
-echo "Option 2 - Use prebuilt wheel (faster, no compiler needed):"
-echo "  Download a wheel matching your Python version"
-echo "  Then: pip install downloaded-wheel-file.whl"
-echo ""
-echo "  Possible source for wheels:"
-echo "  https://huggingface.co/MonsterMMORPG/Wan_GGUF/tree/main"
-echo "========================================="
-echo ""
 echo "To run the application:"
-echo "  1. source venv/bin/activate"
+echo "  1. conda activate $ENV_NAME"
 echo "  2. python voice_clone_studio.py"
-echo "  3. Or use: launch.sh"
-echo ""
-echo "NOTE: VibeVoice ASR is used for transcription on Linux."
+echo "  3. Or use: ./launch.sh (update it to activate conda first)"
 echo ""

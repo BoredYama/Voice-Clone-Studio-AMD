@@ -12,7 +12,7 @@ sox
 einops
 huggingface_hub
 onnxruntime
-onnxruntime-gpu; sys_platform != 'darwin'
+onnxruntime
 
 # Web UI and utilities
 gradio
