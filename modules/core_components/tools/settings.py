@@ -230,13 +230,28 @@ class SettingsTool(Tool):
                                     value=_user_config.get("listen_on_network", False),
                                     info="Allow other devices on your local network to connect. (Restart required)"
                                 )
-                            with gr.Column():
+
                                 gr.Markdown("### Audio Notifications")
                                 components['settings_audio_notifications'] = gr.Checkbox(
                                     label="Enable Audio Notifications",
                                     value=_user_config.get("browser_notifications", True),
                                     info="Play sound when audio generation completes"
                                 )
+
+                            with gr.Column():
+                                gr.Markdown("### Theme")
+                                components['settings_theme'] = gr.Dropdown(
+                                    label="UI Theme",
+                                    choices=["v1", "v2"],
+                                    value=_user_config.get("ui_theme", "v2"),
+                                    info="v1 = Original, v2 = Greyer (Restart required)"
+                                )
+                                components['settings_dark_mode_only'] = gr.Checkbox(
+                                    label="Dark Mode Only",
+                                    value=_user_config.get("dark_mode_only", True),
+                                    info="Force dark mode regardless of browser/OS setting."
+                                )
+
                             with gr.Column():
                                 gr.Markdown("")
 
@@ -370,6 +385,21 @@ class SettingsTool(Tool):
             lambda x: save_preference("skip_engine_check", x),
             inputs=[components['settings_skip_engine_check']],
             outputs=[]
+        )
+
+        # Save theme setting
+        components['settings_theme'].change(
+            lambda x: (save_preference("ui_theme", x), "Restart the app to apply the new theme.")[1],
+            inputs=[components['settings_theme']],
+            outputs=[components['settings_status']]
+        )
+
+        # Save dark mode only setting (applies live via JS)
+        components['settings_dark_mode_only'].change(
+            lambda x: (save_preference("dark_mode_only", x), "Restart the app to apply changes.")[1],
+            inputs=[components['settings_dark_mode_only']],
+            outputs=[components['settings_status']],
+            js="(checked) => { if (checked) { document.body.classList.add('dark'); } return checked; }"
         )
 
         # Save audio notifications setting
