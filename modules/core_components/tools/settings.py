@@ -187,6 +187,8 @@ class SettingsTool(Tool):
                                         "VibeVoice-Large",
                                         "--- VibeVoice ASR ---",
                                         "VibeVoice-ASR",
+                                        "--- Chatterbox ---",
+                                        "Chatterbox",
                                         "--- LuxTTS ---",
                                         "LuxTTS",
                                     ],
@@ -205,6 +207,7 @@ class SettingsTool(Tool):
                                     "VibeVoice-Large (4-bit)": "FranckyB/VibeVoice-Large-4bit",
                                     "VibeVoice-Large": "FranckyB/VibeVoice-Large",
                                     "VibeVoice-ASR": "microsoft/VibeVoice-ASR",
+                                    "Chatterbox": "ResembleAI/chatterbox",
                                     "LuxTTS": "YatharthS/LuxTTS",
                                 }
 
@@ -596,9 +599,15 @@ class SettingsTool(Tool):
                 return f"❌ Error applying changes: {str(e)}"
 
         components['download_btn'].click(
+            fn=lambda: (gr.update(interactive=False, value="Downloading..."), "Downloading model... (check console for progress)"),
+            outputs=[components['download_btn'], components['settings_status']]
+        ).then(
             fn=download_model_clicked,
             inputs=[components['model_select']],
             outputs=[components['settings_status']]
+        ).then(
+            fn=lambda: gr.update(interactive=True, value="Download Model"),
+            outputs=[components['download_btn']]
         )
 
         components['apply_folders_btn'].click(
