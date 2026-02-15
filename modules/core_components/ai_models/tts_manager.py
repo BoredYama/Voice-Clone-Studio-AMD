@@ -1267,7 +1267,17 @@ class TTSManager:
                 from modules.chatterbox import ChatterboxTTS
 
                 device = get_device()
-                self._chatterbox_tts_model = ChatterboxTTS.from_pretrained(device)
+                local_path = check_model_available_locally("ResembleAI/chatterbox")
+                if local_path:
+                    print(f"Found local Chatterbox model: {local_path}")
+                    self._chatterbox_tts_model = ChatterboxTTS.from_local(local_path, device)
+                elif self.user_config.get("offline_mode", False):
+                    raise RuntimeError(
+                        "Offline mode enabled but Chatterbox model not available locally.\n"
+                        "Download it first via Settings or disable offline mode."
+                    )
+                else:
+                    self._chatterbox_tts_model = ChatterboxTTS.from_pretrained(device)
                 print("Chatterbox TTS loaded!")
 
             except ImportError as e:
@@ -1288,7 +1298,17 @@ class TTSManager:
                 from modules.chatterbox import ChatterboxMultilingualTTS
 
                 device = get_device()
-                self._chatterbox_mtl_model = ChatterboxMultilingualTTS.from_pretrained(device)
+                local_path = check_model_available_locally("ResembleAI/chatterbox")
+                if local_path:
+                    print(f"Found local Chatterbox model: {local_path}")
+                    self._chatterbox_mtl_model = ChatterboxMultilingualTTS.from_local(local_path, device)
+                elif self.user_config.get("offline_mode", False):
+                    raise RuntimeError(
+                        "Offline mode enabled but Chatterbox model not available locally.\n"
+                        "Download it first via Settings or disable offline mode."
+                    )
+                else:
+                    self._chatterbox_mtl_model = ChatterboxMultilingualTTS.from_pretrained(device)
                 print("Chatterbox Multilingual TTS loaded!")
 
             except ImportError as e:
@@ -1309,7 +1329,17 @@ class TTSManager:
                 from modules.chatterbox import ChatterboxVC
 
                 device = get_device()
-                self._chatterbox_vc_model = ChatterboxVC.from_pretrained(device)
+                local_path = check_model_available_locally("ResembleAI/chatterbox")
+                if local_path:
+                    print(f"Found local Chatterbox model: {local_path}")
+                    self._chatterbox_vc_model = ChatterboxVC.from_local(local_path, device)
+                elif self.user_config.get("offline_mode", False):
+                    raise RuntimeError(
+                        "Offline mode enabled but Chatterbox model not available locally.\n"
+                        "Download it first via Settings or disable offline mode."
+                    )
+                else:
+                    self._chatterbox_vc_model = ChatterboxVC.from_pretrained(device)
                 print("Chatterbox VC loaded!")
 
             except ImportError as e:

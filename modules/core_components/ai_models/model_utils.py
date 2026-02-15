@@ -58,9 +58,56 @@ def get_attention_implementation(user_preference="auto"):
         return ["flash_attention_2", "sdpa", "eager"]
 
 
+# Brand mapping: model name prefixes to brand folder names.
+# Used for organized storage under models/<brand>/<model_folder>/
+BRAND_MAP = {
+    "Qwen3": "qwen3",
+    "VibeVoice": "vibevoice",
+    "LuxTTS": "luxtts",
+    "chatterbox": "chatterbox",
+}
+
+
+def get_model_brand(model_id):
+    """Derive brand folder name from a model ID.
+
+    Checks the model name (part after '/') against BRAND_MAP prefixes.
+    Falls back to the HuggingFace org/author name lowercased.
+
+    Args:
+        model_id: HuggingFace model ID (e.g., "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+
+    Returns:
+        Brand folder name string (e.g., "qwen3")
+    """
+    model_name = model_id.split("/")[-1] if "/" in model_id else model_id
+
+    for prefix, brand in BRAND_MAP.items():
+        if model_name.startswith(prefix):
+            return brand
+
+    # Fallback: use the org/author name lowercased
+    if "/" in model_id:
+        return model_id.split("/")[0].lower()
+    return ""
+
+
+def _has_model_files(path):
+    """Check if a directory contains recognized model files."""
+    return path.exists() and (
+        list(path.glob("*.safetensors"))
+        or list(path.glob("*.onnx"))
+        or list(path.glob("*.pt"))
+    )
+
+
 def check_model_available_locally(model_name):
     """
     Check if model is available in local models directory.
+
+    Searches in brand subfolder first (e.g., models/qwen3/ModelName/),
+    then falls back to flat layout (models/ModelName/) for backward
+    compatibility.
 
     Args:
         model_name: Model name/path (e.g., "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
@@ -68,16 +115,20 @@ def check_model_available_locally(model_name):
     Returns:
         Path to local model or None if not found
     """
-    models_dir = Path(__file__).parent.parent.parent / "models"
+    models_dir = Path(__file__).parent.parent.parent.parent / "models"
+    folder_name = model_name.split("/")[-1]
 
-    # Try exact model name
-    model_path = models_dir / model_name.split("/")[-1]
-    if model_path.exists() and (
-        list(model_path.glob("*.safetensors"))
-        or list(model_path.glob("*.onnx"))
-        or list(model_path.glob("*.pt"))
-    ):
-        return model_path
+    # 1. Try brand subfolder: models/<brand>/<folder_name>/
+    brand = get_model_brand(model_name)
+    if brand:
+        brand_path = models_dir / brand / folder_name
+        if _has_model_files(brand_path):
+            return brand_path
+
+    # 2. Fallback: flat layout models/<folder_name>/ (backward compat)
+    flat_path = models_dir / folder_name
+    if _has_model_files(flat_path):
+        return flat_path
 
     return None
 
@@ -115,12 +166,25 @@ def download_model_from_huggingface(model_id, models_dir=None, local_folder_name
         else:
             models_dir = Path(models_dir)
 
-        models_dir.mkdir(exist_ok=True)
-        local_path = models_dir / local_folder_name
+        # Organize into brand subfolder (e.g., models/qwen3/Qwen3-TTS-...)
+        brand = get_model_brand(model_id)
+        if brand:
+            brand_dir = models_dir / brand
+            brand_dir.mkdir(parents=True, exist_ok=True)
+            local_path = brand_dir / local_folder_name
+        else:
+            models_dir.mkdir(exist_ok=True)
+            local_path = models_dir / local_folder_name
 
         # Check if already downloaded (look for model files)
-        if list(local_path.glob("*.safetensors")) or list(local_path.glob("*.onnx")) or list(local_path.glob("*.pt")):
+        # Check brand subfolder first, then flat layout for backward compat
+        if _has_model_files(local_path):
             return True, f"Model already exists at {local_path}", str(local_path)
+
+        # Also check flat layout (backward compat: models/<folder_name>/)
+        flat_path = models_dir / local_folder_name
+        if flat_path != local_path and _has_model_files(flat_path):
+            return True, f"Model already exists at {flat_path}", str(flat_path)
 
         # Check if git-lfs is installed
         try:
@@ -128,7 +192,7 @@ def download_model_from_huggingface(model_id, models_dir=None, local_folder_name
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             error_msg = (
                 "git-lfs is not installed or not in PATH. Install from: https://git-lfs.com\n"
-                "Or manually download from HuggingFace and place in: models/" + local_folder_name
+                "Or manually download from HuggingFace and place in: " + str(local_path.relative_to(local_path.parents[2]) if len(local_path.parts) > 2 else local_path)
             )
             print(error_msg, flush=True)
             return False, error_msg, None
