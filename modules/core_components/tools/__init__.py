@@ -1041,11 +1041,30 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
     TEMP_DIR = project_root / user_config.get("temp_folder", "temp")
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    # Load theme
-    theme_path = Path(__file__).parent.parent / "ui_components" / "theme.json"
-    theme = gr.themes.Base.load(str(theme_path)) if theme_path.exists() else None
+    # Load theme based on user preference
+    theme_choice = user_config.get("ui_theme", "v2")
+    if theme_choice == "v1":
+        theme = gr.themes.Ocean(
+            neutral_hue="gray",
+            spacing_size=gr.themes.Size(lg="6px", md="4px", sm="2px", xl="9px", xs="1px", xxl="10px", xxs="1px"),
+            primary_hue="orange",
+            secondary_hue="orange",
+            text_size="lg",
+            radius_size="md",
+        )
+    else:
+        theme = gr.themes.Ocean(
+            neutral_hue=gr.themes.Color(c100="#f3f4f6", c200="#e5e7eb", c300="#d1d5db", c400="#9ca3af", c50="#f9fafb", c500="#6b7280", c600="hsl(215, 7%, 34%)", c700="hsl(217, 10%, 27%)", c800="hsl(215, 14%, 17%)", c900="hsl(221, 20%, 11%)", c950="hsl(223, 20%, 7%)"),
+            spacing_size=gr.themes.Size(lg="6px", md="4px", sm="2px", xl="9px", xs="1px", xxl="10px", xxs="1px"),
+            primary_hue="orange",
+            secondary_hue="red",
+            text_size="lg",
+            radius_size="md",
+        )
 
-    # Create Gradio app
+    # Create Gradio app (force dark mode if configured)
+    dark_mode_js = "() => { document.body.classList.add('dark'); }" if user_config.get("dark_mode_only", True) else None
+
     with gr.Blocks(title=title) as app:
         # Add modal HTML
         gr.HTML(CONFIRMATION_MODAL_HTML)
@@ -1105,6 +1124,7 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
         theme=theme,
         css=CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS + SHARED_CSS,
         head=CONFIRMATION_MODAL_HEAD + INPUT_MODAL_HEAD,
+        js=dark_mode_js,
         server_port=port,
         server_name="127.0.0.1",
         inbrowser=False,

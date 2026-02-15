@@ -281,8 +281,32 @@ def create_ui():
 
 
 if __name__ == "__main__":
-    theme = gr.themes.Base.load('modules/core_components/ui_components/theme.json')
+    # Load selected theme (v1 or v2, default v2)
+    theme_choice = _user_config.get("ui_theme", "v2")
+    if theme_choice == "v1":
+        theme = gr.themes.Ocean(
+            neutral_hue="gray",
+            spacing_size=gr.themes.Size(lg="6px", md="4px", sm="2px", xl="9px", xs="1px", xxl="10px", xxs="1px"),
+            primary_hue="orange",
+            secondary_hue="orange",
+            text_size="lg",
+            radius_size="md",
+        )
+    else:
+        theme = gr.themes.Ocean(
+            neutral_hue=gr.themes.Color(c100="#f3f4f6", c200="#e5e7eb", c300="#d1d5db", c400="#9ca3af", c50="#f9fafb", c500="#6b7280", c600="hsl(215, 7%, 34%)", c700="hsl(217, 10%, 27%)", c800="hsl(215, 14%, 17%)", c900="hsl(221, 20%, 11%)", c950="hsl(223, 20%, 7%)"),
+            spacing_size=gr.themes.Size(lg="6px", md="4px", sm="2px", xl="9px", xs="1px", xxl="10px", xxs="1px"),
+            primary_hue="orange",
+            secondary_hue="red",
+            text_size="lg",
+            radius_size="md",
+        )
+
     app = create_ui()
+
+    # Force dark mode JS snippet (conditional on user preference)
+    dark_mode_js = "() => { document.body.classList.add('dark'); }" if _user_config.get("dark_mode_only", True) else None
+
     try:
         # Use 0.0.0.0 if user enabled network listening, otherwise localhost only
         network_mode = _user_config.get("listen_on_network", False)
@@ -321,7 +345,8 @@ if __name__ == "__main__":
             inbrowser=not (network_mode or server_host == "0.0.0.0"),
             theme=theme,
             css=TRIGGER_HIDE_CSS + CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS,
-            head=CONFIRMATION_MODAL_HEAD + INPUT_MODAL_HEAD
+            head=CONFIRMATION_MODAL_HEAD + INPUT_MODAL_HEAD,
+            js=dark_mode_js
         )
     except OSError:
         print()
