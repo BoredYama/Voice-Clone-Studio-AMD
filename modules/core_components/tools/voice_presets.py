@@ -61,7 +61,7 @@ class VoicePresetsTool(Tool):
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
 
-        with gr.TabItem("Voice Presets") as voice_presets_tab:
+        with gr.TabItem("Voice Presets", id="tab_voice_presets") as voice_presets_tab:
             components['voice_presets_tab'] = voice_presets_tab
             gr.Markdown("Use your Qwen3-TTS trained models or Qwen3's Speakers with style control")
 
@@ -215,6 +215,9 @@ class VoicePresetsTool(Tool):
                         info="Control emotion, tone, speed, etc.",
                         visible=is_premium
                     )
+
+                    import modules.core_components.prompt_hub as _prompt_hub
+                    components.update(_prompt_hub.create_prompt_loader("vp", "Saved Prompts"))
 
                     with gr.Row():
                         components['custom_language'] = gr.Dropdown(
@@ -717,7 +720,15 @@ class VoicePresetsTool(Tool):
             )
         )
 
+        def _disable_gen_btn():
+            return gr.update(interactive=False)
+
+        def _enable_gen_btn():
+            return gr.update(interactive=True)
+
         components['custom_generate_btn'].click(
+            _disable_gen_btn, outputs=[components['custom_generate_btn']]
+        ).then(
             restore_fn, outputs=restore_outputs
         ).then(
             generate_with_voice_type,
@@ -732,6 +743,8 @@ class VoicePresetsTool(Tool):
                 components['icl_enabled'], components['icl_dataset_dropdown'], components['icl_voice_lister']
             ],
             outputs=[components['custom_output_audio'], components['preset_status'], components['_result_metadata'], components['save_result_btn']]
+        ).then(
+            _enable_gen_btn, outputs=[components['custom_generate_btn']]
         )
 
         # Save result button handler
@@ -798,6 +811,37 @@ class VoicePresetsTool(Tool):
             inputs=[components['voice_type_radio']],
             outputs=[]
         )
+
+        # --- Cross-tab prompt routing ---
+        import modules.core_components.prompt_hub as _prompt_hub
+        _prompt_hub.wire_prompt_loader(components, "vp", {"voice_presets.text": components['custom_text_input']})
+
+        prompt_apply_trigger = shared_state.get('prompt_apply_trigger')
+        if prompt_apply_trigger is not None:
+
+            def _apply_vp_text(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'voice_presets.text':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_vp_text,
+                inputs=[prompt_apply_trigger, components['custom_text_input']],
+                outputs=[components['custom_text_input']],
+            )
+
+            def _apply_vp_style(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'voice_presets.style':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_vp_style,
+                inputs=[prompt_apply_trigger, components['custom_instruct_input']],
+                outputs=[components['custom_instruct_input']],
+            )
 
 # Export for tab registry
 get_tool_class = lambda: VoicePresetsTool

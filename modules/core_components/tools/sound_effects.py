@@ -47,7 +47,7 @@ class SoundEffectsTool(Tool):
             "Medium (44kHz)", "Large v2 (44kHz)"
         ]
 
-        with gr.TabItem("SFX"):
+        with gr.TabItem("SFX", id="tab_sound_effects"):
             gr.Markdown("Generate sound effects and foley audio from text prompts or video clips")
             # Mode toggle
             components['sfx_mode'] = gr.Radio(
@@ -75,6 +75,9 @@ class SoundEffectsTool(Tool):
                         lines=2,
                         value="human sounds, music, speech, voices"
                     )
+
+                    import modules.core_components.prompt_hub as _prompt_hub
+                    components.update(_prompt_hub.create_prompt_loader("sfx", "Saved Prompts"))
 
                     with gr.Row():
                         components['sfx_model_size'] = gr.Dropdown(
@@ -406,7 +409,15 @@ class SoundEffectsTool(Tool):
                 traceback.print_exc()
                 return None, None, f"Error: {str(e)}", "", "", gr.update(interactive=False), gr.update(), gr.update()
 
+        def _disable_sfx_btn():
+            return gr.update(interactive=False)
+
+        def _enable_sfx_btn():
+            return gr.update(interactive=True)
+
         components['sfx_generate_btn'].click(
+            _disable_sfx_btn, outputs=[components['sfx_generate_btn']]
+        ).then(
             generate_sfx,
             inputs=[
                 components['sfx_mode'],
@@ -429,6 +440,8 @@ class SoundEffectsTool(Tool):
                 components['sfx_video_toggle'],
                 components['sfx_video_input'],
             ]
+        ).then(
+            _enable_sfx_btn, outputs=[components['sfx_generate_btn']]
         )
 
         # --- Save button: open input modal with suggested filename ---
@@ -525,6 +538,38 @@ class SoundEffectsTool(Tool):
                     components['sfx_metadata']],
             outputs=[components['sfx_status'], components['sfx_save_btn']]
         )
+
+        # --- Cross-tab prompt routing ---
+        import modules.core_components.prompt_hub as _prompt_hub
+        _prompt_hub.wire_prompt_loader(components, "sfx", {"sound_effects.prompt": components['sfx_prompt']})
+
+        prompt_apply_trigger = shared_state.get('prompt_apply_trigger')
+        if prompt_apply_trigger is not None:
+            import modules.core_components.prompt_hub as _prompt_hub
+
+            def _apply_sfx_prompt(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'sound_effects.prompt':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_sfx_prompt,
+                inputs=[prompt_apply_trigger, components['sfx_prompt']],
+                outputs=[components['sfx_prompt']],
+            )
+
+            def _apply_sfx_negative(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'sound_effects.negative':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_sfx_negative,
+                inputs=[prompt_apply_trigger, components['sfx_negative_prompt']],
+                outputs=[components['sfx_negative_prompt']],
+            )
 
 
 # Export for registry

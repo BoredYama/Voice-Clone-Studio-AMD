@@ -1,5 +1,26 @@
 # Version History
 
+## February 22, 2026
+#### Version 1.8.0 - Prompt Hub, Ollama Support & Split by Paragraph
+
+**Prompt Hub Integration**
+- **Prompts Directly in Tools** - Every generation tool (Voice Clone, Voice Presets, Voice Design, Conversation, Sound Effects) now has a built-in Prompt Loader accordion for quick access to saved prompts
+- **One-Click Transfer** - Select a saved prompt and send it straight to the tool's text input without switching tabs
+- **Category Filtering** - Prompts are organized by category, with each tool showing only the relevant prompt type
+- **Auto-Refresh on Expand** - Prompt list refreshes automatically when the accordion is opened, no manual refresh needed
+
+**Ollama Support**
+- **New LLM Backend** - Added Ollama as an alternative LLM backend for prompt generation alongside llama.cpp
+- **Configurable in Settings** - Choose between llama.cpp and Ollama in Preferences; Ollama connects to a locally running instance
+- **Any Ollama Model** - Use any model available in your local Ollama installation for prompt generation
+
+**Split by Paragraph**
+- **Batch Audio Generation** - New "Split by Paragraph" checkbox in Voice Clone splits text by line breaks and generates a separate audio clip for each paragraph
+- **Base Name Prompt** - Enter a base name for the batch; clips are numbered sequentially (e.g., MyScene_001, MyScene_002)
+- **Combined Preview** - A combined preview of all clips plays automatically in the audio player after generation
+- **Name Collision Check** - Client-side validation warns if files with the same base name already exist in the output folder
+- **Works with All Engines** - Compatible with Qwen, VibeVoice, LuxTTS, and Chatterbox
+
 ## February 14, 2026
 #### Version 1.7.5 - Bug Fixes & Polish
 

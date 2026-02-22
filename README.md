@@ -1,6 +1,6 @@
 # Voice Clone Studio
 
-Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and Whisper for automatic transcription. As well as Llama.cpp for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
+Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and Whisper for automatic transcription. As well as Llama.cpp and [Ollama](https://ollama.com/) for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
 
 ![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
 
@@ -19,6 +19,8 @@ Clone voices from your own audio samples. Provide a short reference audio clip w
 - **Voice prompt caching** - First generation processes the sample, subsequent ones are instant
 - **Seed control** - Reproducible results with saved seeds
 - **Emotion presets** - 40+ emotion presets with adjustable intensity
+- **Split by Paragraph** - Generate a separate audio clip for each paragraph, with automatic naming and a combined preview
+- **Prompt Hub** - Access saved prompts directly from the tool without switching tabs
 - **Metadata tracking** - Each output saves generation info (sample, seed, text)
 
 ### Conversation
@@ -133,10 +135,12 @@ Generate sound effects and ambient audio using MMAudio (CVPR 2025, MIT license):
 - **Fine Controls** - Adjustable duration, guidance strength, and negative prompts
 
 ### Prompt Manager
-Save, browse, and generate text prompts for your TTS sessions. Includes a built-in LLM generator powered by [llama.cpp](https://github.com/ggml-org/llama.cpp):
+Save, browse, and generate text prompts for your TTS sessions. Includes a built-in LLM generator powered by [llama.cpp](https://github.com/ggml-org/llama.cpp) or [Ollama](https://ollama.com/):
 
 - **Saved Prompts** - Store and organize prompts in a local `prompts.json` file, browse with the file lister
-- **LLM Generation** - Generate prompts locally using Qwen3 language models via llama.cpp (no cloud API needed)
+- **Prompt Hub** - Every generation tool has a built-in Prompt Loader for one-click access to saved prompts without switching tabs
+- **LLM Generation** - Generate prompts locally using Qwen3 language models via llama.cpp or Ollama (no cloud API needed)
+- **Ollama Support** - Use any model from your local Ollama installation as an alternative to llama.cpp
 - **System Prompt Presets** - Built-in presets for TTS/Voice and Sound Design/SFX workflows, or write your own
 - **Model Auto-Download** - Download Qwen3-4B (~4.8GB) or Qwen3-8B (~8.5GB) GGUF models directly from HuggingFace
 - **Custom Models** - Drop any `.gguf` file into `models/llama/` to use your own models
@@ -151,6 +155,7 @@ View, play back, and manage your previously generated audio files. Multi-select 
 Centralized application configuration:
 
 - **Model loading** - Attention mechanism, offline mode, low CPU memory usage
+- **LLM Backend** - Choose between llama.cpp and Ollama for prompt generation
 - **Folder paths** - Configurable directories for samples, output, datasets, models
 - **Model downloads** - Download models directly to local storage
 - **Visible Tools** - Enable or disable any tool tab (restart to apply)
@@ -167,6 +172,7 @@ Centralized application configuration:
 - **SOX**  (Sound eXchange) - Required for audio processing
 - **FFMPEG** - Multimedia framework required for audio format conversion
 - **llama.cpp** (optional) - Required only for the Prompt Manager's LLM generation feature. See [llama.cpp](https://github.com/ggml-org/llama.cpp)
+- **Ollama** (optional) - Alternative LLM backend for prompt generation. See [Ollama](https://ollama.com/)
 - [Flash Attention 2](https://github.com/Dao-AILab/flash-attention) (optional, CUDA only)
 
 **Note for Linux/macOS users:** `openai-whisper` is skipped (compatibility issues). Use VibeVoice ASR or Qwen3 ASR for transcription instead.

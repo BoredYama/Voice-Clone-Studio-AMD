@@ -815,13 +815,19 @@ class TTSManager:
         sr = 24000  # VibeVoice uses 24kHz
         device = get_device()
 
+        # Normalize newlines: collapse \r\n and multiple blank lines into a single
+        # space so paragraph breaks don't produce lines without a "Speaker N:"
+        # prefix, which VibeVoice's parser silently drops.
+        import re
+        text = re.sub(r'\r\n|\r', '\n', text)   # normalise CR/CRLF
+        text = re.sub(r'\n+', ' ', text).strip() # collapse newlines to space
+
         # If chunking is enabled, generate each chunk separately and concatenate.
         # Each chunk gets its own inference call so the generation state resets,
         # preventing quality degradation (screaming/rushing) on long text.
         if sentences_per_chunk and sentences_per_chunk > 0:
-            import re
             import numpy as np
-            parts = re.split(r'(?<=[.!?])\s+', text.strip())
+            parts = re.split(r'(?<=[.!?])\s+', text)
             parts = [p.strip() for p in parts if p.strip()]
 
             if len(parts) > 1:
@@ -872,7 +878,7 @@ class TTSManager:
                 return audio_data, sr
 
         # Standard single-pass generation (no chunking)
-        formatted_script = f"Speaker 1: {text.strip()}"
+        formatted_script = f"Speaker 1: {text}"
 
         # Process inputs
         inputs = processor(
@@ -948,10 +954,10 @@ class TTSManager:
                 'version': '1.0'
             }
             torch.save(cache_data, cache_path)
-            print(f"Saved voice prompt: {cache_path}")
+            print(f"Saved voice prompt cache: {cache_path}")
             return True
         except Exception as e:
-            print(f"Failed to save voice prompt: {e}")
+            print(f"Failed to save voice prompt cache: {e}")
             return False
 
     def load_voice_prompt(self, sample_name: str, expected_hash: str, model_size: str = "1.7B") -> Optional[dict]:
