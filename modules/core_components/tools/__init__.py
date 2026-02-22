@@ -223,6 +223,9 @@ SHARED_CSS = """
 #input-trigger {
     display: none !important;
 }
+#prompt-apply-trigger {
+    display: none !important;
+}
 #finetune-files-group > div {
     display: grid !important;
 }
@@ -720,7 +723,7 @@ def get_or_create_voice_prompt_standalone(model, sample_name, wav_path, ref_text
     return prompt_items, False  # False = newly created
 
 
-def build_shared_state(user_config, active_emotions, directories, constants, managers=None, confirm_trigger=None, input_trigger=None):
+def build_shared_state(user_config, active_emotions, directories, constants, managers=None, confirm_trigger=None, input_trigger=None, prompt_apply_trigger=None):
     """
     Build shared_state dictionary for main app or standalone testing.
 
@@ -903,6 +906,10 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'show_confirmation_modal_js': show_confirmation_modal_js,
         'show_input_modal_js': show_input_modal_js,
 
+        # Cross-tab prompt routing
+        'prompt_apply_trigger': prompt_apply_trigger,
+        'main_tabs_component': None,  # Set to gr.Tabs component after creation in main app
+
         # Helper functions
         'get_trained_models': lambda: get_trained_models_util(directories.get('OUTPUT_DIR').parent / user_config.get("models_folder", "models")),
         'get_trained_model_names': lambda: get_trained_model_names_util(
@@ -970,6 +977,19 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
     shared_state['load_tool_params'] = load_tool_params
     shared_state['wire_param_persistence'] = wire_param_persistence
     shared_state['create_param_restore_handler'] = create_param_restore_handler
+
+    # Prompt hub helpers (cross-tab routing and prompt file management)
+    try:
+        from modules.core_components import prompt_hub as _prompt_hub
+        shared_state['prompt_get_names'] = _prompt_hub.get_prompt_names
+        shared_state['prompt_build_apply_payload'] = _prompt_hub.build_apply_payload
+        shared_state['prompt_parse_apply_payload'] = _prompt_hub.parse_apply_payload
+        shared_state['prompt_merge_text'] = _prompt_hub.merge_text
+        shared_state['prompt_get_target_tab_id'] = _prompt_hub.get_target_tab_id
+        shared_state['prompt_get_enabled_target_choices'] = _prompt_hub.get_enabled_target_choices
+        shared_state['prompt_get_target_default_preset'] = _prompt_hub.get_target_default_preset
+    except ImportError:
+        pass
 
     # Add managers if provided (for main app)
     if managers:

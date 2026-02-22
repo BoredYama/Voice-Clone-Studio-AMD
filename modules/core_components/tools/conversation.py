@@ -90,7 +90,7 @@ class ConversationTool(Tool):
         is_luxtts = initial_conv_model == "LuxTTS"
         is_chatterbox = initial_conv_model == "Chatterbox"
 
-        with gr.TabItem("Conversation") as conv_tab:
+        with gr.TabItem("Conversation", id="tab_conversation") as conv_tab:
             components['conv_tab'] = conv_tab
             gr.Markdown("Choose a model and create multi-speaker conversations with your custom voices")
             components['conv_model_type'] = gr.Radio(
@@ -108,6 +108,9 @@ class ConversationTool(Tool):
                 # Left - Script input and model-specific controls
                 with gr.Column(scale=2):
                     gr.Markdown("### Conversation Script")
+
+                    import modules.core_components.prompt_hub as _prompt_hub
+                    components.update(_prompt_hub.create_prompt_loader("conv", "Saved Prompts"))
 
                     components['conversation_script'] = gr.Textbox(
                         label="Script:",
@@ -1601,8 +1604,16 @@ class ConversationTool(Tool):
                                                            vv_top_p, vv_repetition_penalty,
                                                            vv_sentences_per_chunk, progress)
 
+        def _disable_conv_btn():
+            return gr.update(interactive=False)
+
+        def _enable_conv_btn():
+            return gr.update(interactive=True)
+
         # Event handlers
         components['conv_generate_btn'].click(
+            _disable_conv_btn, outputs=[components['conv_generate_btn']]
+        ).then(
             restore_fn, outputs=restore_outputs
         ).then(
             unified_conversation_generate,
@@ -1645,6 +1656,8 @@ class ConversationTool(Tool):
                 components['conv_seed']
             ],
             outputs=[components['conv_output_audio'], components['conv_status'], components['_conv_result_metadata'], components['conv_save_result_btn']]
+        ).then(
+            _enable_conv_btn, outputs=[components['conv_generate_btn']]
         )
 
         # Save result button handler
@@ -1805,6 +1818,26 @@ class ConversationTool(Tool):
             inputs=[components['conv_pause_hyphen']],
             outputs=[]
         )
+
+        # --- Cross-tab prompt routing ---
+        import modules.core_components.prompt_hub as _prompt_hub
+        _prompt_hub.wire_prompt_loader(components, "conv", {"conversation.script": components['conversation_script']})
+
+        prompt_apply_trigger = shared_state.get('prompt_apply_trigger')
+        if prompt_apply_trigger is not None:
+            import modules.core_components.prompt_hub as _prompt_hub
+
+            def _apply_conv_script(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'conversation.script':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_conv_script,
+                inputs=[prompt_apply_trigger, components['conversation_script']],
+                outputs=[components['conversation_script']],
+            )
 
 
 # Export for tab registry
