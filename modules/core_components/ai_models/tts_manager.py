@@ -954,10 +954,10 @@ class TTSManager:
                 'version': '1.0'
             }
             torch.save(cache_data, cache_path)
-            print(f"Saved voice prompt: {cache_path}")
+            print(f"Saved voice prompt cache: {cache_path}")
             return True
         except Exception as e:
-            print(f"Failed to save voice prompt: {e}")
+            print(f"Failed to save voice prompt cache: {e}")
             return False
 
     def load_voice_prompt(self, sample_name: str, expected_hash: str, model_size: str = "1.7B") -> Optional[dict]:
