@@ -595,3 +595,83 @@ def read_embedded_metadata(audio_path):
             pass
 
     return None
+
+
+# ============================================================
+# SMART NAMING UTILITIES
+# ============================================================
+
+def make_stem_from_text(text, sample_name=None, max_words=8):
+    """Create a filename stem from the sample name and first N words of text.
+
+    Produces '<sample>_<first_words>' so the same text generated with
+    different voice samples won't collide.
+
+    Args:
+        text: Source text (prompt / sentence)
+        sample_name: Voice sample name to prefix (optional)
+        max_words: How many words to keep (default 8)
+
+    Returns:
+        A safe filename stem like 'deep_voice_a_beautiful_night_in_barcelona'
+    """
+    words = text.strip().split()[:max_words]
+    raw = "_".join(words)
+    # Keep only alphanumeric, hyphens, underscores
+    safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in raw)
+    safe = re.sub(r'_+', '_', safe).strip('_').lower()
+    text_part = safe or "clip"
+
+    if sample_name:
+        prefix = "".join(c if (c.isalnum() or c in "-_") else "_" for c in sample_name)
+        prefix = re.sub(r'_+', '_', prefix).strip('_').lower()
+        if prefix:
+            return f"{prefix}_{text_part}"
+
+    return text_part
+
+
+def resolve_output_stem(base_stem, output_dir, clip_count=1):
+    """Find a non-colliding stem for saving files to output_dir.
+
+    For clip_count == 1 (single file):
+        Returns base_stem if it doesn't exist, else base_stem_1, base_stem_2, ...
+
+    For clip_count > 1 (split clips numbered _01, _02, ...):
+        Returns base_stem if base_stem_01 doesn't exist,
+        else base_stem_1 if base_stem_1_01 doesn't exist, etc.
+
+    Args:
+        base_stem: Base filename stem (no extension)
+        output_dir: Path to output directory
+        clip_count: Number of clips to save (1 = single file)
+
+    Returns:
+        A stem string guaranteed not to collide with existing files.
+    """
+    output_dir = Path(output_dir)
+    exts = {'.wav', '.flac', '.mp3'}
+    existing = set()
+    if output_dir.exists():
+        for f in output_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in exts:
+                existing.add(f.stem.lower())
+
+    low = base_stem.lower()
+
+    if clip_count <= 1:
+        # Single-file collision check
+        if low not in existing:
+            return base_stem
+        n = 1
+        while f"{low}_{n}" in existing:
+            n += 1
+        return f"{base_stem}_{n}"
+    else:
+        # Multi-clip collision check: test whether _01 already exists
+        if f"{low}_01" not in existing:
+            return base_stem
+        n = 1
+        while f"{low}_{n}_01" in existing:
+            n += 1
+        return f"{base_stem}_{n}"

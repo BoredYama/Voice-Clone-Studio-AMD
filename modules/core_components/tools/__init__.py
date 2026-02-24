@@ -965,13 +965,16 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
     # Audio save utilities
     from modules.core_components.audio_utils import (
         save_audio_to_temp, save_result_to_output, convert_audio_format,
-        embed_metadata, read_embedded_metadata
+        embed_metadata, read_embedded_metadata,
+        make_stem_from_text, resolve_output_stem,
     )
     shared_state['save_audio_to_temp'] = save_audio_to_temp
     shared_state['save_result_to_output'] = save_result_to_output
     shared_state['convert_audio_format'] = convert_audio_format
     shared_state['embed_metadata'] = embed_metadata
     shared_state['read_embedded_metadata'] = read_embedded_metadata
+    shared_state['make_stem_from_text'] = make_stem_from_text
+    shared_state['resolve_output_stem'] = resolve_output_stem
 
     # Tool param persistence helpers
     shared_state['load_tool_params'] = load_tool_params
