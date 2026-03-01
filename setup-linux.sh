@@ -119,6 +119,15 @@ else
     exit 1
 fi
 
+# Faster Qwen3 TTS (CUDA graph acceleration, lightweight - auto-install)
+echo ""
+echo "Installing Faster Qwen3 TTS (CUDA graph acceleration)..."
+if pip install faster-qwen3-tts; then
+    echo "Faster Qwen3 TTS installed successfully!"
+else
+    echo "WARNING: Faster Qwen3 TTS installation failed. Standard engine will be used."
+fi
+
 # Check for ONNX Runtime issues
 echo ""
 echo "Checking ONNX Runtime installation..."

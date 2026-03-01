@@ -434,18 +434,22 @@ class VoiceCloneTool(Tool):
                     'top_p': float(cb_top_p), 'language': cb_language,
                 }
 
-                # Qwen: pre-load prompt
+                # Qwen: pre-load prompt (skip if CUDA graphs — handled internally)
                 prompt_items = None
                 cache_status = ""
                 if engine == "qwen":
                     progress(0.1, desc=f"Loading Qwen3 model ({model_size})...")
                     model = tts_manager.get_qwen3_base(model_size)
-                    prompt_items, was_cached = get_or_create_voice_prompt(
-                        model=model, sample_name=sample_name,
-                        wav_path=sample["wav_path"], ref_text=sample["ref_text"],
-                        model_size=model_size, progress_callback=progress
-                    )
-                    cache_status = "cached" if was_cached else "newly processed"
+                    if hasattr(model, 'talker_graph'):
+                        # FasterQwen3TTS — ref audio handled in generate call
+                        cache_status = "CUDA graphs"
+                    else:
+                        prompt_items, was_cached = get_or_create_voice_prompt(
+                            model=model, sample_name=sample_name,
+                            wav_path=sample["wav_path"], ref_text=sample["ref_text"],
+                            model_size=model_size, progress_callback=progress
+                        )
+                        cache_status = "cached" if was_cached else "newly processed"
                     progress(0.6, desc=f"Generating audio ({cache_status} prompt)...")
                 else:
                     progress(0.1, desc=f"Loading {model_selection}...")
@@ -722,11 +726,13 @@ class VoiceCloneTool(Tool):
                 if engine == "qwen":
                     progress(0.05, desc=f"Loading Qwen3 model ({model_size})...")
                     model = tts_manager.get_qwen3_base(model_size)
-                    prompt_items, _ = get_or_create_voice_prompt(
-                        model=model, sample_name=sample_name,
-                        wav_path=sample["wav_path"], ref_text=sample["ref_text"],
-                        model_size=model_size, progress_callback=progress
-                    )
+                    if not hasattr(model, 'talker_graph'):
+                        # Standard path — create/cache voice prompt
+                        prompt_items, _ = get_or_create_voice_prompt(
+                            model=model, sample_name=sample_name,
+                            wav_path=sample["wav_path"], ref_text=sample["ref_text"],
+                            model_size=model_size, progress_callback=progress
+                        )
                 elif engine == "vibevoice":
                     progress(0.05, desc=f"Loading VibeVoice model ({model_size})...")
                     tts_manager.get_vibevoice_tts(model_size)

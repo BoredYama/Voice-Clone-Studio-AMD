@@ -896,6 +896,7 @@ class ConversationTool(Tool):
 
                 progress(0.1, desc=f"Loading Base model ({model_size})...")
                 model = tts_manager.get_qwen3_base(model_size)
+                is_faster = hasattr(model, 'talker_graph')
 
                 # Generate all segments
                 all_segments = []
@@ -935,9 +936,9 @@ class ConversationTool(Tool):
 
                     parts = pause_pattern.split(text)
 
-                    # Get voice prompt (cached if available)
+                    # Get voice prompt (cached if available) — skip for FasterQwen3TTS (uses ref_audio directly)
                     voice_prompt = None
-                    if get_or_create_voice_prompt:
+                    if not is_faster and get_or_create_voice_prompt:
                         voice_prompt = get_or_create_voice_prompt(model, speaker_key, voice_sample_path, ref_text, model_size)
 
                     # Generate segments
@@ -949,12 +950,11 @@ class ConversationTool(Tool):
                         if not segment_text:
                             continue
 
-                        wavs, sr = model.generate_voice_clone(
+                        gen_kwargs = dict(
                             text=segment_text,
                             language=language if language != "Auto" else "auto",
                             ref_audio=voice_sample_path,
                             ref_text=ref_text,
-                            voice_prompt=voice_prompt,
                             do_sample=do_sample,
                             temperature=line_temp,
                             top_k=top_k,
@@ -962,6 +962,9 @@ class ConversationTool(Tool):
                             repetition_penalty=line_rep_pen,
                             max_new_tokens=max_new_tokens
                         )
+                        if not is_faster:
+                            gen_kwargs['voice_prompt'] = voice_prompt
+                        wavs, sr = model.generate_voice_clone(**gen_kwargs)
 
                         segment_pause = 0.0
                         if j + 1 < len(parts):
@@ -1652,7 +1655,7 @@ class ConversationTool(Tool):
                 # VibeVoice advanced params
                 components['vv_conv_num_steps'], components['vv_conv_do_sample'], components['vv_conv_temperature'], components['vv_conv_top_k'],
                 components['vv_conv_top_p'], components['vv_conv_repetition_penalty'],
-                components['vv_conv_sentences_per_chunk'],
+                components['vv_conv_paragraph_per_chunk'],
                 # LuxTTS
                 components['luxtts_pause_linebreak'],
                 components['lux_conv_num_steps'], components['lux_conv_t_shift'], components['lux_conv_speed'], components['lux_conv_guidance_scale'],

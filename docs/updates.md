@@ -1,5 +1,25 @@
 # Version History
 
+## March 1, 2026
+#### Version 1.9.0 - CUDA Graphs Acceleration & Multi-GPU Support
+
+**Faster-Qwen3-TTS Integration**
+- **5-10x Faster Inference** - Integrated [Faster-Qwen3-TTS](https://github.com/andimarafioti/faster-qwen3-tts) for CUDA graph-accelerated Qwen3 generation with bit-identical output quality
+- **All Qwen3 Models** - Acceleration applies to Base, CustomVoice, VoiceDesign, and Trained Model checkpoints
+- **Toggle in Settings** - Enable/disable CUDA Graphs Acceleration under Faster-Qwen3-TTS section (CUDA only)
+- **Automatic Fallback** - Gracefully falls back to standard Qwen3TTSModel when CUDA graphs are unavailable or fail
+- **Setup Scripts Updated** - `setup-windows.bat` and `setup-linux.sh` auto-install the package (not on macOS)
+- **Trained Model Caching** - Trained model checkpoints are now cached between generations instead of reloading every time
+
+**Multi-GPU Support**
+- **GPU Assignment Dropdowns** - Assign TTS, ASR, and Llama.cpp to different GPUs on multi-GPU systems
+- **Per-Subsystem Control** - Each subsystem (TTS, ASR, LLM) can run on a separate GPU to maximize throughput
+- **Automatic Detection** - GPU dropdowns only appear when multiple CUDA GPUs are detected
+- **Saved Preferences** - GPU assignments persist across restarts via config.json
+
+**Bug Fixes**
+- **Conversation Tab Fix** - Fixed a broken component reference (`vv_conv_sentences_per_chunk` → `vv_conv_paragraph_per_chunk`) that prevented all interactive elements from working on the Conversation tab
+
 ## February 22, 2026
 #### Version 1.8.0 - Prompt Hub, Ollama Support & Split by Paragraph
 

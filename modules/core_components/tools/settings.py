@@ -14,6 +14,7 @@ if __name__ == "__main__":
     sys.path.insert(0, str(project_root))
 
 import gradio as gr
+import torch as _torch
 from pathlib import Path
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.help_page import (
@@ -276,6 +277,21 @@ class SettingsTool(Tool):
                                 )
 
                             with gr.Column():
+                                if _torch.cuda.is_available():
+                                    gr.Markdown("### Faster-Qwen3-TTS")
+                                    try:
+                                        import faster_qwen3_tts as _fqt  # noqa: F401
+                                        components['settings_cuda_graphs'] = gr.Checkbox(
+                                            label="CUDA Graphs Acceleration",
+                                            value=_user_config.get("cuda_graphs", True),
+                                            info="5-10x faster Qwen3 inference via CUDA graphs. Disable if you get errors."
+                                        )
+                                    except ImportError:
+                                        gr.Markdown(
+                                            "CUDA Graphs not available. Run setup script or install manually:\n\n"
+                                            "`pip install faster-qwen3-tts`"
+                                        )
+
                                 # GPU Assignment (only shown when multiple CUDA GPUs available)
                                 from modules.core_components.ai_models.model_utils import get_available_gpus
                                 available_gpus = get_available_gpus()
@@ -437,6 +453,14 @@ class SettingsTool(Tool):
             inputs=[components['settings_skip_engine_check']],
             outputs=[]
         )
+
+        # Save CUDA graphs acceleration setting
+        if 'settings_cuda_graphs' in components:
+            components['settings_cuda_graphs'].change(
+                lambda x: save_preference("cuda_graphs", x),
+                inputs=[components['settings_cuda_graphs']],
+                outputs=[]
+            )
 
         # Save GPU assignment settings (only if multi-GPU dropdowns exist)
         if 'settings_tts_gpu' in components:

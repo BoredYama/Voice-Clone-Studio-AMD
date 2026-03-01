@@ -56,6 +56,11 @@ class TTSManager:
         self._vibevoice_tts_size = None
         self._luxtts_model = None
 
+        # Trained model cache
+        self._trained_model = None
+        self._trained_model_path = None
+        self._trained_model_is_faster = False
+
         # Chatterbox models
         self._chatterbox_tts_model = None
         self._chatterbox_vc_model = None
@@ -65,6 +70,57 @@ class TTSManager:
         self._voice_prompt_cache = {}
         self._luxtts_prompt_cache = {}
         self._last_loaded_model = None
+
+        # CUDA graphs acceleration state
+        self._faster_qwen3_available = None  # lazy-checked
+
+    def _use_cuda_graphs(self):
+        """Check if CUDA graphs acceleration should be used for Qwen3 models."""
+        # Must be enabled in config
+        if not self.user_config.get("cuda_graphs", True):
+            return False
+        # Must have CUDA
+        if not torch.cuda.is_available():
+            return False
+        # Multi-GPU: FasterQwen3TTS currently only supports cuda:0
+        tts_gpu = int(self.user_config.get("tts_gpu", 0))
+        if tts_gpu != 0:
+            return False
+        # Check package availability (cache result)
+        if self._faster_qwen3_available is None:
+            try:
+                from faster_qwen3_tts import FasterQwen3TTS  # noqa: F401
+                self._faster_qwen3_available = True
+            except ImportError:
+                self._faster_qwen3_available = False
+        return self._faster_qwen3_available
+
+    def _load_faster_model(self, model_name):
+        """Load a model using FasterQwen3TTS with CUDA graph acceleration."""
+        from faster_qwen3_tts import FasterQwen3TTS
+
+        offline_mode = self.user_config.get("offline_mode", False)
+        local_path = check_model_available_locally(model_name)
+
+        if local_path:
+            print(f"Found local model: {local_path}")
+            model_to_load = str(local_path)
+        elif offline_mode:
+            raise RuntimeError(
+                f"Offline mode enabled but model not available locally: {model_name}\n"
+                f"To use offline mode, download the model first or disable offline mode in Settings."
+            )
+        else:
+            model_to_load = model_name
+
+        model = FasterQwen3TTS.from_pretrained(
+            model_to_load,
+            device="cuda",
+            dtype=get_dtype(),
+            attn_implementation="eager",
+        )
+        print(f"[OK] Model loaded with CUDA graphs acceleration")
+        return model
 
     def _check_and_unload_if_different(self, model_id):
         """If switching to a different model, unload all. Stops external servers on first/new load."""
@@ -131,24 +187,26 @@ class TTSManager:
 
         raise RuntimeError(f"Failed to load model: {str(last_error)}")
 
-    def get_qwen3_base(self, size: str = "1.7B"):
+    def get_qwen3_base(self, size="1.7B"):
         """Load Qwen3 Base TTS model."""
         model_id = f"qwen3_base_{size}"
         self._check_and_unload_if_different(model_id)
 
         if self._qwen3_base_model is None:
-            from qwen_tts import Qwen3TTSModel
-
             model_name = f"Qwen/Qwen3-TTS-12Hz-{size}-Base"
             print(f"Loading {model_name}...")
 
-            self._qwen3_base_model, _ = self._load_model_with_attention(
-                Qwen3TTSModel,
-                model_name,
-                device_map=get_device(self.user_config.get("tts_gpu", 0)),
-                dtype=get_dtype(),
-                low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
-            )
+            if self._use_cuda_graphs():
+                self._qwen3_base_model = self._load_faster_model(model_name)
+            else:
+                from qwen_tts import Qwen3TTSModel
+                self._qwen3_base_model, _ = self._load_model_with_attention(
+                    Qwen3TTSModel,
+                    model_name,
+                    device_map=get_device(self.user_config.get("tts_gpu", 0)),
+                    dtype=get_dtype(),
+                    low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
+                )
             self._qwen3_base_size = size
             print(f"Qwen3 Base TTS ({size}) loaded!")
 
@@ -159,39 +217,44 @@ class TTSManager:
         self._check_and_unload_if_different("qwen3_voice_design")
 
         if self._qwen3_voice_design_model is None:
-            from qwen_tts import Qwen3TTSModel
-
+            model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
             print("Loading Qwen3 VoiceDesign model (1.7B)...")
 
-            self._qwen3_voice_design_model, _ = self._load_model_with_attention(
-                Qwen3TTSModel,
-                "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-                device_map=get_device(self.user_config.get("tts_gpu", 0)),
-                dtype=get_dtype(),
-                low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
-            )
+            if self._use_cuda_graphs():
+                self._qwen3_voice_design_model = self._load_faster_model(model_name)
+            else:
+                from qwen_tts import Qwen3TTSModel
+                self._qwen3_voice_design_model, _ = self._load_model_with_attention(
+                    Qwen3TTSModel,
+                    model_name,
+                    device_map=get_device(self.user_config.get("tts_gpu", 0)),
+                    dtype=get_dtype(),
+                    low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
+                )
             print("VoiceDesign model loaded!")
 
         return self._qwen3_voice_design_model
 
-    def get_qwen3_custom_voice(self, size: str = "1.7B"):
+    def get_qwen3_custom_voice(self, size="1.7B"):
         """Load Qwen3 CustomVoice model."""
         model_id = f"qwen3_custom_voice_{size}"
         self._check_and_unload_if_different(model_id)
 
         if self._qwen3_custom_voice_model is None:
-            from qwen_tts import Qwen3TTSModel
-
             model_name = f"Qwen/Qwen3-TTS-12Hz-{size}-CustomVoice"
             print(f"Loading {model_name}...")
 
-            self._qwen3_custom_voice_model, _ = self._load_model_with_attention(
-                Qwen3TTSModel,
-                model_name,
-                device_map=get_device(self.user_config.get("tts_gpu", 0)),
-                dtype=get_dtype(),
-                low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
-            )
+            if self._use_cuda_graphs():
+                self._qwen3_custom_voice_model = self._load_faster_model(model_name)
+            else:
+                from qwen_tts import Qwen3TTSModel
+                self._qwen3_custom_voice_model, _ = self._load_model_with_attention(
+                    Qwen3TTSModel,
+                    model_name,
+                    device_map=get_device(self.user_config.get("tts_gpu", 0)),
+                    dtype=get_dtype(),
+                    low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
+                )
             self._qwen3_custom_voice_size = size
             print(f"CustomVoice model ({size}) loaded!")
 
@@ -337,6 +400,13 @@ class TTSManager:
             del self._chatterbox_mtl_model
             self._chatterbox_mtl_model = None
             freed.append("Chatterbox Multilingual")
+
+        if self._trained_model is not None:
+            del self._trained_model
+            self._trained_model = None
+            self._trained_model_path = None
+            self._trained_model_is_faster = False
+            freed.append("Trained Model")
 
         if freed:
             gc.collect()
@@ -502,7 +572,6 @@ class TTSManager:
             Tuple: (audio_array, sample_rate)
         """
         import random
-        from qwen_tts.inference.qwen3_tts_model import Qwen3TTSModel
 
         # Set seed for reproducibility
         if seed < 0:
@@ -517,48 +586,92 @@ class TTSManager:
         device = get_device(user_config.get("tts_gpu", 0))
         dtype = get_dtype(device)
 
-        # Load the trained model checkpoint with attention fallback
-        mechanisms = get_attention_implementation(
-            user_config.get("attention_mechanism", "auto")
-        )
+        # Reuse cached trained model if same checkpoint
+        checkpoint_str = str(checkpoint_path)
+        if self._trained_model is not None and self._trained_model_path == checkpoint_str:
+            model = self._trained_model
+            is_faster = self._trained_model_is_faster
+            print(f"Reusing cached trained model: {Path(checkpoint_str).name}")
+        else:
+            # Unload previous trained model if switching checkpoints
+            if self._trained_model is not None:
+                print(f"Switching trained model checkpoint, unloading previous...")
+                del self._trained_model
+                self._trained_model = None
+                self._trained_model_path = None
+                empty_device_cache()
 
-        model = None
-        for attn in mechanisms:
-            try:
-                model = Qwen3TTSModel.from_pretrained(
-                    checkpoint_path,
-                    device_map=device,
-                    torch_dtype=dtype,
-                    attn_implementation=attn,
-                    low_cpu_mem_usage=user_config.get("low_cpu_mem_usage", False)
-                )
-                print(f"Trained model loaded with {attn}")
-                break
-            except Exception as e:
-                error_msg = str(e).lower()
-                is_attn_error = any(
-                    kw in error_msg for kw in ["flash", "attention", "sdpa", "not supported"]
-                )
-                if is_attn_error:
-                    print(f"  {attn} not available for trained model, trying next...")
-                    continue
-                raise
+            # Try CUDA graphs acceleration first, fall back to standard loading
+            use_faster = self._use_cuda_graphs()
+            model = None
 
-        if model is None:
-            raise RuntimeError("Failed to load trained model with any attention mechanism")
+            if use_faster:
+                try:
+                    from faster_qwen3_tts import FasterQwen3TTS
+                    model = FasterQwen3TTS.from_pretrained(
+                        checkpoint_path,
+                        device="cuda",
+                        dtype=dtype,
+                        attn_implementation="eager",
+                    )
+                    print("[OK] Trained model loaded with CUDA graphs acceleration")
+                except Exception as e:
+                    print(f"  CUDA graphs failed for trained model, falling back to standard: {e}")
+                    model = None
+
+            if model is None:
+                from qwen_tts.inference.qwen3_tts_model import Qwen3TTSModel
+                # Load with attention fallback
+                mechanisms = get_attention_implementation(
+                    user_config.get("attention_mechanism", "auto")
+                )
+                for attn in mechanisms:
+                    try:
+                        model = Qwen3TTSModel.from_pretrained(
+                            checkpoint_path,
+                            device_map=device,
+                            torch_dtype=dtype,
+                            attn_implementation=attn,
+                            low_cpu_mem_usage=user_config.get("low_cpu_mem_usage", False)
+                        )
+                        print(f"Trained model loaded with {attn}")
+                        break
+                    except Exception as e:
+                        error_msg = str(e).lower()
+                        is_attn_error = any(
+                            kw in error_msg for kw in ["flash", "attention", "sdpa", "not supported"]
+                        )
+                        if is_attn_error:
+                            print(f"  {attn} not available for trained model, trying next...")
+                            continue
+                        raise
+
+            if model is None:
+                raise RuntimeError("Failed to load trained model with any attention mechanism")
+
+            is_faster = hasattr(model, 'talker_graph')
+
+            # Cache the loaded model
+            self._trained_model = model
+            self._trained_model_path = checkpoint_str
+            self._trained_model_is_faster = is_faster
+
+        # FasterQwen3TTS wraps the Qwen3TTSModel: model.model is the inner Qwen3TTSModel
+        # For standard Qwen3TTSModel: model itself is the Qwen3TTSModel
+        qwen_model = model.model if is_faster else model
 
         if icl_mode and voice_sample_path and ref_text:
             # ICL mode: use generate_voice_clone with reference audio
             # Ensure model type allows voice cloning (patch legacy "custom_voice" models)
-            if hasattr(model, 'model') and hasattr(model.model, 'tts_model_type'):
-                if model.model.tts_model_type != "base":
-                    print(f"Patching tts_model_type from '{model.model.tts_model_type}' to 'base' for ICL inference")
-                    model.model.tts_model_type = "base"
+            if hasattr(qwen_model, 'model') and hasattr(qwen_model.model, 'tts_model_type'):
+                if qwen_model.model.tts_model_type != "base":
+                    print(f"Patching tts_model_type from '{qwen_model.model.tts_model_type}' to 'base' for ICL inference")
+                    qwen_model.model.tts_model_type = "base"
 
             # Training drops speaker_encoder weights from checkpoints to save space.
             # ICL needs it to compute speaker embeddings from reference audio.
             # Borrow speaker_encoder from the base model of matching size.
-            if model.model.speaker_encoder is None:
+            if qwen_model.model.speaker_encoder is None:
                 import json as json_mod
                 config_path = Path(checkpoint_path) / "config.json"
                 with open(config_path, "r", encoding="utf-8") as f:
@@ -571,23 +684,17 @@ class TTSManager:
                 local_path = check_model_available_locally(base_name)
                 base_to_load = str(local_path) if local_path else base_name
 
-                base_model = Qwen3TTSModel.from_pretrained(
+                from qwen_tts.inference.qwen3_tts_model import Qwen3TTSModel as _Qwen3TTSModel
+                base_model = _Qwen3TTSModel.from_pretrained(
                     base_to_load,
                     device_map=device,
                     torch_dtype=dtype,
                 )
-                model.model.speaker_encoder = base_model.model.speaker_encoder
-                model.model.speaker_encoder_sample_rate = base_model.model.speaker_encoder_sample_rate
+                qwen_model.model.speaker_encoder = base_model.model.speaker_encoder
+                qwen_model.model.speaker_encoder_sample_rate = base_model.model.speaker_encoder_sample_rate
                 del base_model
                 empty_device_cache()
                 print("Speaker encoder transplanted successfully")
-
-            # Create voice clone prompt with ICL (not x-vector only)
-            prompt_items = model.create_voice_clone_prompt(
-                ref_audio=str(voice_sample_path),
-                ref_text=ref_text,
-                x_vector_only_mode=False,
-            )
 
             # Build generation kwargs
             gen_kwargs = {
@@ -603,19 +710,35 @@ class TTSManager:
                 if repetition_penalty != 1.0:
                     gen_kwargs['repetition_penalty'] = float(repetition_penalty)
 
-            wavs, sr = model.generate_voice_clone(
-                text=text.strip(),
-                language=language if language != "Auto" else "Auto",
-                voice_clone_prompt=prompt_items,
-                **gen_kwargs
-            )
+            if is_faster:
+                # FasterQwen3TTS: pass ref_audio/ref_text directly
+                wavs, sr = model.generate_voice_clone(
+                    text=text.strip(),
+                    language=language if language != "Auto" else "Auto",
+                    ref_audio=str(voice_sample_path),
+                    ref_text=ref_text,
+                    **gen_kwargs
+                )
+            else:
+                # Standard: create voice clone prompt first
+                prompt_items = model.create_voice_clone_prompt(
+                    ref_audio=str(voice_sample_path),
+                    ref_text=ref_text,
+                    x_vector_only_mode=False,
+                )
+                wavs, sr = model.generate_voice_clone(
+                    text=text.strip(),
+                    language=language if language != "Auto" else "Auto",
+                    voice_clone_prompt=prompt_items,
+                    **gen_kwargs
+                )
         else:
             # Speaker embedding mode: use generate_custom_voice
             # Ensure model type allows custom voice (patch "base" models)
-            if hasattr(model, 'model') and hasattr(model.model, 'tts_model_type'):
-                if model.model.tts_model_type != "custom_voice":
-                    print(f"Patching tts_model_type from '{model.model.tts_model_type}' to 'custom_voice' for speaker embedding inference")
-                    model.model.tts_model_type = "custom_voice"
+            if hasattr(qwen_model, 'model') and hasattr(qwen_model.model, 'tts_model_type'):
+                if qwen_model.model.tts_model_type != "custom_voice":
+                    print(f"Patching tts_model_type from '{qwen_model.model.tts_model_type}' to 'custom_voice' for speaker embedding inference")
+                    qwen_model.model.tts_model_type = "custom_voice"
 
             kwargs = {
                 "text": text.strip(),
@@ -642,17 +765,21 @@ class TTSManager:
 
         return audio_data, sr
 
-    def generate_voice_clone_qwen(self, text: str, language: str, prompt_items, seed: int = -1,
-                                  do_sample: bool = True, temperature: float = 0.9, top_k: int = 50,
-                                  top_p: float = 1.0, repetition_penalty: float = 1.05,
-                                  max_new_tokens: int = 2048, model_size: str = "1.7B") -> Tuple[str, int]:
+    def generate_voice_clone_qwen(self, text, language, prompt_items, seed=-1,
+                                  do_sample=True, temperature=0.9, top_k=50,
+                                  top_p=1.0, repetition_penalty=1.05,
+                                  max_new_tokens=2048, model_size="1.7B",
+                                  ref_audio=None, ref_text=None):
         """
-        Generate audio using Qwen3 voice cloning with cached prompt.
+        Generate audio using Qwen3 voice cloning.
+
+        When CUDA graphs are enabled, uses ref_audio/ref_text directly.
+        Otherwise, uses pre-computed voice_clone_prompt (prompt_items).
 
         Args:
             text: Text to generate
             language: Language for TTS
-            prompt_items: Pre-computed voice clone prompt
+            prompt_items: Pre-computed voice clone prompt (standard path)
             seed: Random seed (-1 for random)
             do_sample: Enable sampling
             temperature: Sampling temperature
@@ -661,6 +788,8 @@ class TTSManager:
             repetition_penalty: Repetition penalty
             max_new_tokens: Maximum tokens to generate
             model_size: Model size (1.7B or 0.6B)
+            ref_audio: Path to reference audio (CUDA graphs path)
+            ref_text: Transcript of reference audio (CUDA graphs path)
 
         Returns:
             Tuple: (audio_array, sample_rate)
@@ -676,27 +805,44 @@ class TTSManager:
         # Load BASE model (not CustomVoice - Base supports voice cloning)
         model = self.get_qwen3_base(model_size)
 
-        # Prepare generation kwargs
-        gen_kwargs = {
-            'max_new_tokens': int(max_new_tokens),
-        }
-        if do_sample:
-            gen_kwargs['do_sample'] = True
-            gen_kwargs['temperature'] = float(temperature)
-            if top_k > 0:
-                gen_kwargs['top_k'] = int(top_k)
-            if top_p < 1.0:
-                gen_kwargs['top_p'] = float(top_p)
-            if repetition_penalty != 1.0:
-                gen_kwargs['repetition_penalty'] = float(repetition_penalty)
+        # Check if this is a FasterQwen3TTS model (CUDA graphs)
+        is_faster = hasattr(model, 'talker_graph')
 
-        # Generate using the cached prompt
-        wavs, sr = model.generate_voice_clone(
-            text=text.strip(),
-            language=language if language != "Auto" else "Auto",
-            voice_clone_prompt=prompt_items,
-            **gen_kwargs
-        )
+        if is_faster and ref_audio:
+            # FasterQwen3TTS: pass ref_audio/ref_text directly
+            wavs, sr = model.generate_voice_clone(
+                text=text.strip(),
+                language=language if language != "Auto" else "Auto",
+                ref_audio=ref_audio,
+                ref_text=ref_text or "",
+                do_sample=do_sample,
+                temperature=float(temperature),
+                top_k=int(top_k),
+                top_p=float(top_p),
+                repetition_penalty=float(repetition_penalty),
+                max_new_tokens=int(max_new_tokens),
+            )
+        else:
+            # Standard Qwen3TTSModel: use pre-computed voice_clone_prompt
+            gen_kwargs = {
+                'max_new_tokens': int(max_new_tokens),
+            }
+            if do_sample:
+                gen_kwargs['do_sample'] = True
+                gen_kwargs['temperature'] = float(temperature)
+                if top_k > 0:
+                    gen_kwargs['top_k'] = int(top_k)
+                if top_p < 1.0:
+                    gen_kwargs['top_p'] = float(top_p)
+                if repetition_penalty != 1.0:
+                    gen_kwargs['repetition_penalty'] = float(repetition_penalty)
+
+            wavs, sr = model.generate_voice_clone(
+                text=text.strip(),
+                language=language if language != "Auto" else "Auto",
+                voice_clone_prompt=prompt_items,
+                **gen_kwargs
+            )
 
         # Convert to numpy if needed
         audio_data = wavs[0]
@@ -1435,7 +1581,6 @@ class TTSManager:
 
         return audio_data, 24000
 
-
     # ============================================================
     # UNIFIED VOICE CLONE DISPATCH
     # ============================================================
@@ -1517,6 +1662,8 @@ class TTSManager:
                 repetition_penalty=qp.get('repetition_penalty', 1.05),
                 max_new_tokens=qp.get('max_new_tokens', 2048),
                 model_size=model_size,
+                ref_audio=sample_wav_path,
+                ref_text=sample_ref_text,
             )
         elif engine == "vibevoice":
             return self.generate_voice_clone_vibevoice(

@@ -228,6 +228,13 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
+
+REM Faster Qwen3 TTS (CUDA graph acceleration, lightweight - auto-install)
+echo Installing Faster Qwen3 TTS (CUDA graph acceleration)...
+pip install faster-qwen3-tts
+if %errorlevel% neq 0 (
+    echo WARNING: Faster Qwen3 TTS installation failed. Standard engine will be used.
+)
 echo.
 
 REM Optional modules

@@ -2,7 +2,7 @@
 
 Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and Whisper for automatic transcription. As well as Llama.cpp and [Ollama](https://ollama.com/) for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
 
-![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
+![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.9-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
 
 <a href="docs/preview.png"><img src="docs/preview.png" alt="Voice Clone Studio Preview" width="600"></a>
 
@@ -155,6 +155,8 @@ View, play back, and manage your previously generated audio files. Multi-select 
 Centralized application configuration:
 
 - **Model loading** - Attention mechanism, offline mode, low CPU memory usage
+- **CUDA Graphs Acceleration** - 5-10x faster Qwen3 inference via [Faster-Qwen3-TTS](https://github.com/andimarafioti/faster-qwen3-tts) (CUDA only, toggle in Settings)
+- **Multi-GPU Assignment** - Assign TTS, ASR, and Llama.cpp to different GPUs on multi-GPU systems
 - **LLM Backend** - Choose between llama.cpp and Ollama for prompt generation
 - **Folder paths** - Configurable directories for samples, output, datasets, models
 - **Model downloads** - Download models directly to local storage
