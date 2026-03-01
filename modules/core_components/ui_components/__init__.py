@@ -76,7 +76,7 @@ def create_qwen_advanced_params(
                     choices=emotion_choices,
                     value=initial_emotion,
                     label="🎭 Emotion Preset",
-                    info="Quick presets that adjust parameters for different emotions",
+                    info="Quick presets that adjust parameters to fake different emotions",
                     scale=3
                 )
                 components['emotion_intensity'] = gr.Slider(
@@ -319,7 +319,7 @@ def create_qwen_emotion_controls(
             choices=emotion_choices,
             value=initial_emotion,
             label="🎭 Emotion Preset",
-            info="Quick presets that adjust parameters for different emotions",
+            info="Quick presets that adjust parameters to fake different emotions",
             scale=3
         )
         components['emotion_intensity'] = gr.Slider(
