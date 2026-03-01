@@ -145,7 +145,7 @@ class TTSManager:
             self._qwen3_base_model, _ = self._load_model_with_attention(
                 Qwen3TTSModel,
                 model_name,
-                device_map=get_device(),
+                device_map=get_device(self.user_config.get("tts_gpu", 0)),
                 dtype=get_dtype(),
                 low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
             )
@@ -166,7 +166,7 @@ class TTSManager:
             self._qwen3_voice_design_model, _ = self._load_model_with_attention(
                 Qwen3TTSModel,
                 "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-                device_map=get_device(),
+                device_map=get_device(self.user_config.get("tts_gpu", 0)),
                 dtype=get_dtype(),
                 low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
             )
@@ -188,7 +188,7 @@ class TTSManager:
             self._qwen3_custom_voice_model, _ = self._load_model_with_attention(
                 Qwen3TTSModel,
                 model_name,
-                device_map=get_device(),
+                device_map=get_device(self.user_config.get("tts_gpu", 0)),
                 dtype=get_dtype(),
                 low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
             )
@@ -232,7 +232,7 @@ class TTSManager:
                         VibeVoiceForConditionalGenerationInference,
                         model_path,
                         dtype=get_dtype(),
-                        device_map=get_device(),
+                        device_map=get_device(self.user_config.get("tts_gpu", 0)),
                         low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
                     )
 
@@ -268,7 +268,7 @@ class TTSManager:
                     warnings.filterwarnings("ignore", category=FutureWarning, message=".*torch.cuda.amp.autocast.*")
                     from zipvoice.luxvoice import LuxTTS
 
-                    device = get_device()
+                    device = get_device(self.user_config.get("tts_gpu", 0))
                     if device.startswith("cuda"):
                         self._luxtts_model = LuxTTS("YatharthS/LuxTTS", device="cuda")
                     elif device == "mps":
@@ -514,7 +514,7 @@ class TTSManager:
             user_config = {}
 
         # Determine device and dtype
-        device = get_device()
+        device = get_device(user_config.get("tts_gpu", 0))
         dtype = get_dtype(device)
 
         # Load the trained model checkpoint with attention fallback
@@ -781,7 +781,7 @@ class TTSManager:
                 gen_config['repetition_penalty'] = float(repetition_penalty)
 
         sr = 24000  # VibeVoice uses 24kHz
-        device = get_device()
+        device = get_device(self.user_config.get("tts_gpu", 0))
 
         # Normalize newlines: collapse \r\n and multiple blank lines into a single
         # space so paragraph breaks don't produce lines without a "Speaker N:"
@@ -951,7 +951,7 @@ class TTSManager:
 
             # Move to device
             cached_prompt = cache_data['prompt']
-            device = get_device()
+            device = get_device(self.user_config.get("tts_gpu", 0))
 
             if isinstance(cached_prompt, dict):
                 prompt_items = {
@@ -1041,7 +1041,7 @@ class TTSManager:
             return None
 
         try:
-            device = get_device()
+            device = get_device(self.user_config.get("tts_gpu", 0))
             cache_data = torch.load(cache_path, map_location="cpu", weights_only=False)
 
             if cache_data.get("audio_hash") != expected_audio_hash:
@@ -1240,7 +1240,7 @@ class TTSManager:
             try:
                 from modules.chatterbox import ChatterboxTTS
 
-                device = get_device()
+                device = get_device(self.user_config.get("tts_gpu", 0))
                 local_path = check_model_available_locally("ResembleAI/chatterbox")
                 if local_path:
                     print(f"Found local Chatterbox model: {local_path}")
@@ -1271,7 +1271,7 @@ class TTSManager:
             try:
                 from modules.chatterbox import ChatterboxMultilingualTTS
 
-                device = get_device()
+                device = get_device(self.user_config.get("tts_gpu", 0))
                 local_path = check_model_available_locally("ResembleAI/chatterbox")
                 if local_path:
                     print(f"Found local Chatterbox model: {local_path}")
@@ -1302,7 +1302,7 @@ class TTSManager:
             try:
                 from modules.chatterbox import ChatterboxVC
 
-                device = get_device()
+                device = get_device(self.user_config.get("tts_gpu", 0))
                 local_path = check_model_available_locally("ResembleAI/chatterbox")
                 if local_path:
                     print(f"Found local Chatterbox model: {local_path}")

@@ -276,7 +276,35 @@ class SettingsTool(Tool):
                                 )
 
                             with gr.Column():
-                                gr.Markdown("")
+                                # GPU Assignment (only shown when multiple CUDA GPUs available)
+                                from modules.core_components.ai_models.model_utils import get_available_gpus
+                                available_gpus = get_available_gpus()
+                                has_multi_gpu = len(available_gpus) > 1
+                                if has_multi_gpu:
+                                    gpu_choices = [f"GPU {i}: {name}" for i, name in available_gpus]
+
+                                    gr.Markdown("### GPU Assignment")
+                                    with gr.Row():
+                                        components['settings_tts_gpu'] = gr.Dropdown(
+                                            label="TTS GPU",
+                                            choices=gpu_choices,
+                                            value=gpu_choices[int(_user_config.get("tts_gpu", 0))],
+                                            info="GPU used for text-to-speech models"
+                                        )
+                                        components['settings_asr_gpu'] = gr.Dropdown(
+                                            label="ASR GPU",
+                                            choices=gpu_choices,
+                                            value=gpu_choices[int(_user_config.get("asr_gpu", 0))],
+                                            info="GPU used for speech recognition models"
+                                        )
+                                        components['settings_llama_gpu'] = gr.Dropdown(
+                                            label="Llama.cpp GPU",
+                                            choices=gpu_choices,
+                                            value=gpu_choices[int(_user_config.get("llama_gpu", 0))],
+                                            info="GPU used for LLM prompt generation"
+                                        )
+                                else:
+                                    gr.Markdown("")
 
                         gr.Markdown("Configure where files are stored. Changes apply after clicking **Apply Changes**.")
                         # Default folder paths
@@ -409,6 +437,31 @@ class SettingsTool(Tool):
             inputs=[components['settings_skip_engine_check']],
             outputs=[]
         )
+
+        # Save GPU assignment settings (only if multi-GPU dropdowns exist)
+        if 'settings_tts_gpu' in components:
+            def extract_gpu_index(choice):
+                """Extract GPU index from dropdown choice string like 'GPU 0: NVIDIA ...'"""
+                try:
+                    return int(choice.split(":")[0].replace("GPU ", ""))
+                except (ValueError, AttributeError, IndexError):
+                    return 0
+
+            components['settings_tts_gpu'].change(
+                lambda x: save_preference("tts_gpu", extract_gpu_index(x)),
+                inputs=[components['settings_tts_gpu']],
+                outputs=[]
+            )
+            components['settings_asr_gpu'].change(
+                lambda x: save_preference("asr_gpu", extract_gpu_index(x)),
+                inputs=[components['settings_asr_gpu']],
+                outputs=[]
+            )
+            components['settings_llama_gpu'].change(
+                lambda x: save_preference("llama_gpu", extract_gpu_index(x)),
+                inputs=[components['settings_llama_gpu']],
+                outputs=[]
+            )
 
         # Save theme setting
         components['settings_theme'].change(
