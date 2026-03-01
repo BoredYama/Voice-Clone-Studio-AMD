@@ -389,13 +389,13 @@ class ConversationTool(Tool):
 
                         # VibeVoice Advanced Parameters
                         vv_conv_params = create_vibevoice_advanced_params(
-                            include_sentences_per_chunk=True,
+                            include_paragraph_per_chunk=True,
                             visible=True
                         )
                         components['vv_conv_num_steps'] = vv_conv_params['num_steps']
                         components['longform_cfg_scale'] = vv_conv_params['cfg_scale']
                         components['vv_conv_do_sample'] = vv_conv_params['do_sample']
-                        components['vv_conv_sentences_per_chunk'] = vv_conv_params['sentences_per_chunk']
+                        components['vv_conv_paragraph_per_chunk'] = vv_conv_params['paragraph_per_chunk']
                         components['vv_conv_repetition_penalty'] = vv_conv_params['repetition_penalty']
                         components['vv_conv_temperature'] = vv_conv_params['temperature']
                         components['vv_conv_top_k'] = vv_conv_params['top_k']
@@ -590,7 +590,7 @@ class ConversationTool(Tool):
                 ('longform_cfg_scale', 'cfg_scale'),
                 ('vv_conv_num_steps', 'num_steps'),
                 ('vv_conv_do_sample', 'do_sample'),
-                ('vv_conv_sentences_per_chunk', 'sentences_per_chunk'),
+                ('vv_conv_paragraph_per_chunk', 'paragraph_per_chunk'),
                 ('vv_conv_repetition_penalty', 'repetition_penalty'),
                 ('vv_conv_temperature', 'temperature'),
                 ('vv_conv_top_k', 'top_k'),
@@ -896,6 +896,7 @@ class ConversationTool(Tool):
 
                 progress(0.1, desc=f"Loading Base model ({model_size})...")
                 model = tts_manager.get_qwen3_base(model_size)
+                is_faster = hasattr(model, 'talker_graph')
 
                 # Generate all segments
                 all_segments = []
@@ -935,9 +936,9 @@ class ConversationTool(Tool):
 
                     parts = pause_pattern.split(text)
 
-                    # Get voice prompt (cached if available)
+                    # Get voice prompt (cached if available) — skip for FasterQwen3TTS (uses ref_audio directly)
                     voice_prompt = None
-                    if get_or_create_voice_prompt:
+                    if not is_faster and get_or_create_voice_prompt:
                         voice_prompt = get_or_create_voice_prompt(model, speaker_key, voice_sample_path, ref_text, model_size)
 
                     # Generate segments
@@ -949,12 +950,11 @@ class ConversationTool(Tool):
                         if not segment_text:
                             continue
 
-                        wavs, sr = model.generate_voice_clone(
+                        gen_kwargs = dict(
                             text=segment_text,
                             language=language if language != "Auto" else "auto",
                             ref_audio=voice_sample_path,
                             ref_text=ref_text,
-                            voice_prompt=voice_prompt,
                             do_sample=do_sample,
                             temperature=line_temp,
                             top_k=top_k,
@@ -962,6 +962,9 @@ class ConversationTool(Tool):
                             repetition_penalty=line_rep_pen,
                             max_new_tokens=max_new_tokens
                         )
+                        if not is_faster:
+                            gen_kwargs['voice_prompt'] = voice_prompt
+                        wavs, sr = model.generate_voice_clone(**gen_kwargs)
 
                         segment_pause = 0.0
                         if j + 1 < len(parts):
@@ -1023,7 +1026,7 @@ class ConversationTool(Tool):
 
         def generate_vibevoice_longform_handler(script_text, voice_samples_dict, model_size, cfg_scale, seed,
                                                 num_steps, do_sample, temperature, top_k, top_p, repetition_penalty,
-                                                sentences_per_chunk=0, progress=gr.Progress()):
+                                                paragraph_per_chunk=False, progress=gr.Progress()):
             """Generate long-form multi-speaker audio with VibeVoice (up to 90 min)."""
             if not script_text or not script_text.strip():
                 return None, "❌ Please enter a script.", "", gr.update()
@@ -1136,17 +1139,26 @@ class ConversationTool(Tool):
                 model.set_ddpm_inference_steps(num_steps=num_steps)
                 sr = 24000
 
-                sentences_per_chunk = int(sentences_per_chunk) if sentences_per_chunk else 0
-
-                # Chunked generation: process N lines at a time to prevent
+                # Chunked generation: split by voice switches to prevent
                 # quality degradation (screaming/rushing) on long conversations.
-                if sentences_per_chunk > 0 and len(formatted_lines) > sentences_per_chunk:
+                if paragraph_per_chunk and len(formatted_lines) > 1:
                     import numpy as np
+                    # Group consecutive lines by the same speaker
                     chunks = []
-                    for i in range(0, len(formatted_lines), sentences_per_chunk):
-                        chunks.append(formatted_lines[i:i + sentences_per_chunk])
+                    current_chunk = [formatted_lines[0]]
+                    current_speaker = formatted_lines[0].split(":")[0]
 
-                    print(f"VibeVoice conversation chunking: {len(chunks)} chunks of ~{sentences_per_chunk} line(s)")
+                    for line in formatted_lines[1:]:
+                        speaker = line.split(":")[0]
+                        if speaker != current_speaker:
+                            chunks.append(current_chunk)
+                            current_chunk = [line]
+                            current_speaker = speaker
+                        else:
+                            current_chunk.append(line)
+                    chunks.append(current_chunk)
+
+                    print(f"VibeVoice conversation chunking: {len(chunks)} chunks (by voice switch)")
                     audio_segments = []
 
                     for idx, chunk_lines in enumerate(chunks):
@@ -1212,7 +1224,7 @@ class ConversationTool(Tool):
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename_stem = f"Conversation_vibevoice_{timestamp}"
                     duration = len(generated_audio) / sr
-                    chunk_info = f"Lines per Chunk: {sentences_per_chunk}" if sentences_per_chunk > 0 else "Chunking: Off"
+                    chunk_info = "Chunking: By voice switch" if paragraph_per_chunk else "Chunking: Off"
                     metadata = dedent(f"""\
                         Generated: {timestamp}
                         Type: VibeVoice Conversation
@@ -1643,7 +1655,7 @@ class ConversationTool(Tool):
                 # VibeVoice advanced params
                 components['vv_conv_num_steps'], components['vv_conv_do_sample'], components['vv_conv_temperature'], components['vv_conv_top_k'],
                 components['vv_conv_top_p'], components['vv_conv_repetition_penalty'],
-                components['vv_conv_sentences_per_chunk'],
+                components['vv_conv_paragraph_per_chunk'],
                 # LuxTTS
                 components['luxtts_pause_linebreak'],
                 components['lux_conv_num_steps'], components['lux_conv_t_shift'], components['lux_conv_speed'], components['lux_conv_guidance_scale'],

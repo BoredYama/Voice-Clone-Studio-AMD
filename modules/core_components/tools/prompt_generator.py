@@ -482,6 +482,11 @@ def _start_server(model_name, user_config, progress=None):
             "-c", "4096"
         ]
 
+        # Assign specific GPU if configured
+        llama_gpu = int(user_config.get("llama_gpu", 0))
+        if llama_gpu > 0:
+            cmd_args.extend(["--main-gpu", str(llama_gpu)])
+
         popen_kwargs = {
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,

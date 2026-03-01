@@ -196,14 +196,14 @@ class VoiceCloneTool(Tool):
                     components['vv_params_col'] = gr.Column(visible=is_vv_initial)
                     with components['vv_params_col']:
                         vv_params = create_vibevoice_advanced_params(
-                            include_sentences_per_chunk=True,
+                            include_paragraph_per_chunk=True,
                             visible=True
                         )
                     components['vv_params_accordion'] = vv_params['accordion']
                     components['vv_cfg_scale'] = vv_params['cfg_scale']
                     components['vv_num_steps'] = vv_params['num_steps']
                     components['vv_do_sample'] = vv_params['do_sample']
-                    components['vv_sentences_per_chunk'] = vv_params['sentences_per_chunk']
+                    components['vv_paragraph_per_chunk'] = vv_params['paragraph_per_chunk']
                     components['vv_repetition_penalty'] = vv_params['repetition_penalty']
                     components['vv_temperature'] = vv_params['temperature']
                     components['vv_top_k'] = vv_params['top_k']
@@ -253,9 +253,9 @@ class VoiceCloneTool(Tool):
                         )
 
                     components['split_paragraph'] = gr.Checkbox(
-                        label="Split by Paragraph",
+                        label="Split Audio by Paragraph",
                         value=False,
-                        info="Generate a separate audio clip for each line (separated by line breaks)"
+                        info="Generate a separate audio clip for each paragraph (separated by line breaks)"
                     )
 
                     components['generate_btn'] = gr.Button("Generate Audio", variant="primary", size="lg")
@@ -273,8 +273,6 @@ class VoiceCloneTool(Tool):
                     )
                     # Hidden state for metadata text
                     components['_result_metadata'] = gr.Textbox(visible=False)
-                    # Hidden state for existing file stems (split-by-paragraph collision check)
-                    components['_existing_stems_json'] = gr.Textbox(visible=False)
 
                     components['clone_status'] = gr.Textbox(label="Status", interactive=False, lines=2, max_lines=5)
 
@@ -325,7 +323,7 @@ class VoiceCloneTool(Tool):
                 ('vv_cfg_scale', 'cfg_scale'),
                 ('vv_num_steps', 'num_steps'),
                 ('vv_do_sample', 'do_sample'),
-                ('vv_sentences_per_chunk', 'sentences_per_chunk'),
+                ('vv_paragraph_per_chunk', 'paragraph_per_chunk'),
                 ('vv_repetition_penalty', 'repetition_penalty'),
                 ('vv_temperature', 'temperature'),
                 ('vv_top_k', 'top_k'),
@@ -368,52 +366,27 @@ class VoiceCloneTool(Tool):
                                    qwen_do_sample=True, qwen_temperature=0.9, qwen_top_k=50, qwen_top_p=1.0, qwen_repetition_penalty=1.05,
                                    qwen_max_new_tokens=2048,
                                    vv_do_sample=False, vv_temperature=1.0, vv_top_k=50, vv_top_p=1.0, vv_repetition_penalty=1.1,
-                                   vv_cfg_scale=3.0, vv_num_steps=20, vv_sentences_per_chunk=0,
+                                   vv_cfg_scale=3.0, vv_num_steps=20, vv_paragraph_per_chunk=False,
                                    lux_num_steps=4, lux_t_shift=0.5, lux_speed=1.0, lux_return_smooth=False,
                                    lux_rms=0.01, lux_ref_duration=30, lux_guidance_scale=3.0,
                                    cb_exaggeration=0.5, cb_cfg_weight=0.5, cb_temperature=0.8,
                                    cb_repetition_penalty=1.2, cb_top_p=1.0, cb_language="English",
                                    progress=gr.Progress()):
-            """Generate audio using voice cloning - supports Qwen, VibeVoice, and LuxTTS engines."""
+            """Generate audio using voice cloning via unified engine dispatch."""
+            from modules.core_components.audio_utils import make_stem_from_text, resolve_output_stem
+
             if not sample_name:
                 return None, "Please select a voice sample first.", "", gr.update()
 
             if not text_to_generate or not text_to_generate.strip():
                 return None, "Please enter text to generate.", "", gr.update()
 
-            # Parse model selection to determine engine and size
-            if "LuxTTS" in model_selection:
-                engine = "luxtts"
-                model_size = "Default"
-            elif "VibeVoice" in model_selection:
-                engine = "vibevoice"
-                if "Small" in model_selection:
-                    model_size = "1.5B"
-                elif "4-bit" in model_selection:
-                    model_size = "Large (4-bit)"
-                else:  # Large
-                    model_size = "Large"
-            elif "Chatterbox" in model_selection:
-                engine = "chatterbox"
-                if "Multilingual" in model_selection:
-                    model_size = "Multilingual"
-                else:
-                    model_size = "Default"
-            else:  # Qwen3
-                engine = "qwen"
-                if "Small" in model_selection:
-                    model_size = "0.6B"
-                else:  # Large
-                    model_size = "1.7B"
+            # Parse engine from model selection
+            engine, model_size = tts_manager.parse_model_selection(model_selection)
 
             # Find the selected sample
             samples = get_available_samples()
-            sample = None
-            for s in samples:
-                if s["name"] == sample_name:
-                    sample = s
-                    break
-
+            sample = next((s for s in samples if s["name"] == sample_name), None)
             if not sample:
                 return None, f"❌ Sample '{sample_name}' not found.", "", gr.update()
 
@@ -427,151 +400,100 @@ class VoiceCloneTool(Tool):
                 ), "", gr.update()
 
             try:
-                # Set the seed for reproducibility
-                seed = int(seed) if seed is not None else -1
-                if seed < 0:
-                    seed = random.randint(0, 2147483647)
+                # Seed
+                actual_seed = int(seed) if seed is not None else -1
+                if actual_seed < 0:
+                    actual_seed = random.randint(0, 2147483647)
+                set_seed(actual_seed)
+                seed_msg = f"Seed: {actual_seed}"
 
-                set_seed(seed)
-                seed_msg = f"Seed: {seed}"
+                # Build engine param dicts
+                qwen_params = {
+                    'do_sample': qwen_do_sample, 'temperature': qwen_temperature,
+                    'top_k': qwen_top_k, 'top_p': qwen_top_p,
+                    'repetition_penalty': qwen_repetition_penalty,
+                    'max_new_tokens': qwen_max_new_tokens,
+                }
+                vv_params = {
+                    'do_sample': vv_do_sample, 'temperature': vv_temperature,
+                    'top_k': vv_top_k, 'top_p': vv_top_p,
+                    'repetition_penalty': vv_repetition_penalty,
+                    'cfg_scale': vv_cfg_scale, 'num_steps': vv_num_steps,
+                    'paragraph_per_chunk': bool(vv_paragraph_per_chunk),
+                }
+                lux_params = {
+                    'num_steps': int(lux_num_steps), 't_shift': float(lux_t_shift),
+                    'speed': float(lux_speed), 'return_smooth': bool(lux_return_smooth),
+                    'rms': float(lux_rms), 'ref_duration': int(lux_ref_duration),
+                    'guidance_scale': float(lux_guidance_scale),
+                }
+                cb_params = {
+                    'exaggeration': float(cb_exaggeration), 'cfg_weight': float(cb_cfg_weight),
+                    'temperature': float(cb_temperature),
+                    'repetition_penalty': float(cb_repetition_penalty),
+                    'top_p': float(cb_top_p), 'language': cb_language,
+                }
 
+                # Qwen: pre-load prompt (skip if CUDA graphs — handled internally)
+                prompt_items = None
+                cache_status = ""
                 if engine == "qwen":
-                    # Qwen engine - uses cached prompts
                     progress(0.1, desc=f"Loading Qwen3 model ({model_size})...")
-
-                    # Get or create the voice prompt (with caching)
                     model = tts_manager.get_qwen3_base(model_size)
-                    prompt_items, was_cached = get_or_create_voice_prompt(
-                        model=model,
-                        sample_name=sample_name,
-                        wav_path=sample["wav_path"],
-                        ref_text=sample["ref_text"],
-                        model_size=model_size,
-                        progress_callback=progress
-                    )
-
-                    cache_status = "cached" if was_cached else "newly processed"
-                    progress(0.6, desc=f"Generating audio ({cache_status} prompt)...")
-
-                    # Generate using manager method
-                    audio_data, sr = tts_manager.generate_voice_clone_qwen(
-                        text=text_to_generate,
-                        language=language,
-                        prompt_items=prompt_items,
-                        seed=seed,
-                        do_sample=qwen_do_sample,
-                        temperature=qwen_temperature,
-                        top_k=qwen_top_k,
-                        top_p=qwen_top_p,
-                        repetition_penalty=qwen_repetition_penalty,
-                        max_new_tokens=qwen_max_new_tokens,
-                        model_size=model_size
-                    )
-                    wavs = [audio_data]
-
-                    engine_display = f"Qwen3-{model_size}"
-
-                elif engine == "vibevoice":
-                    progress(0.1, desc=f"Loading VibeVoice model ({model_size})...")
-
-                    # Generate using manager method
-                    audio_data, sr = tts_manager.generate_voice_clone_vibevoice(
-                        text=text_to_generate,
-                        voice_sample_path=sample["wav_path"],
-                        seed=seed,
-                        do_sample=vv_do_sample,
-                        temperature=vv_temperature,
-                        top_k=vv_top_k,
-                        top_p=vv_top_p,
-                        repetition_penalty=vv_repetition_penalty,
-                        cfg_scale=vv_cfg_scale,
-                        num_steps=vv_num_steps,
-                        sentences_per_chunk=int(vv_sentences_per_chunk),
-                        model_size=model_size,
-                        user_config=shared_state.get('_user_config', {})
-                    )
-                    wavs = [audio_data]
-
-                    engine_display = f"VibeVoice-{model_size}"
-                    cache_status = "no caching (VibeVoice)"
-
-                elif engine == "luxtts":
-                    progress(0.05, desc="Loading LuxTTS model...")
-
-                    # Generate using manager method (with prompt caching)
-                    audio_data, sr, was_cached = tts_manager.generate_voice_clone_luxtts(
-                        text=text_to_generate,
-                        voice_sample_path=sample["wav_path"],
-                        sample_name=sample_name,
-                        num_steps=int(lux_num_steps),
-                        t_shift=float(lux_t_shift),
-                        speed=float(lux_speed),
-                        return_smooth=bool(lux_return_smooth),
-                        rms=float(lux_rms),
-                        ref_duration=int(lux_ref_duration),
-                        guidance_scale=float(lux_guidance_scale),
-                        seed=seed,
-                        ref_text=sample.get("ref_text") or sample.get("meta", {}).get("Text"),
-                        progress_callback=progress,
-                    )
-                    wavs = [audio_data]
-
-                    engine_display = "LuxTTS"
-                    cache_status = "cached" if was_cached else "newly processed"
-
-                elif engine == "chatterbox":
-                    if model_size == "Multilingual":
-                        progress(0.1, desc="Loading Chatterbox Multilingual model...")
-                        from modules.core_components.constants import CHATTERBOX_LANG_TO_CODE
-                        lang_code = CHATTERBOX_LANG_TO_CODE.get(cb_language, "en")
-                        audio_data, sr = tts_manager.generate_voice_clone_chatterbox_multilingual(
-                            text=text_to_generate,
-                            language_code=lang_code,
-                            voice_sample_path=sample["wav_path"],
-                            seed=seed,
-                            exaggeration=float(cb_exaggeration),
-                            cfg_weight=float(cb_cfg_weight),
-                            temperature=float(cb_temperature),
-                            repetition_penalty=float(cb_repetition_penalty),
-                            top_p=float(cb_top_p),
-                        )
-                        engine_display = "Chatterbox Multilingual"
+                    if hasattr(model, 'talker_graph'):
+                        # FasterQwen3TTS — ref audio handled in generate call
+                        cache_status = "CUDA graphs"
                     else:
-                        progress(0.1, desc="Loading Chatterbox TTS model...")
-                        audio_data, sr = tts_manager.generate_voice_clone_chatterbox(
-                            text=text_to_generate,
-                            voice_sample_path=sample["wav_path"],
-                            seed=seed,
-                            exaggeration=float(cb_exaggeration),
-                            cfg_weight=float(cb_cfg_weight),
-                            temperature=float(cb_temperature),
-                            repetition_penalty=float(cb_repetition_penalty),
-                            top_p=float(cb_top_p),
+                        prompt_items, was_cached = get_or_create_voice_prompt(
+                            model=model, sample_name=sample_name,
+                            wav_path=sample["wav_path"], ref_text=sample["ref_text"],
+                            model_size=model_size, progress_callback=progress
                         )
-                        engine_display = "Chatterbox"
+                        cache_status = "cached" if was_cached else "newly processed"
+                    progress(0.6, desc=f"Generating audio ({cache_status} prompt)...")
+                else:
+                    progress(0.1, desc=f"Loading {model_selection}...")
 
-                    wavs = [audio_data]
-                    cache_status = "no caching (Chatterbox)"
+                # Dispatch to the correct engine
+                audio_data, sr = tts_manager.generate_voice_clone_dispatch(
+                    text=text_to_generate, engine=engine, model_size=model_size,
+                    sample_wav_path=sample["wav_path"], sample_name=sample_name,
+                    sample_ref_text=sample_ref_text, language=language, seed=actual_seed,
+                    qwen_params=qwen_params, vv_params=vv_params,
+                    lux_params=lux_params, cb_params=cb_params,
+                    prompt_items=prompt_items, user_config=_user_config,
+                    progress_callback=progress,
+                )
 
                 progress(0.8, desc="Saving audio...")
-                # Generate unique filename
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                safe_name = "".join(c if c.isalnum() else "_" for c in sample_name)
-                filename_stem = f"{safe_name}_{timestamp}"
+
+                # Smart naming from text
+                stem = make_stem_from_text(text_to_generate, sample_name=sample_name)
+                filename_stem = resolve_output_stem(stem, OUTPUT_DIR, clip_count=1)
+
+                # Engine display name
+                engine_display_map = {
+                    'qwen': f"Qwen3-{model_size}",
+                    'vibevoice': f"VibeVoice-{model_size}",
+                    'luxtts': "LuxTTS",
+                    'chatterbox': "Chatterbox Multilingual" if model_size == "Multilingual" else "Chatterbox",
+                }
+                engine_display = engine_display_map.get(engine, model_selection)
 
                 # Build metadata text
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 metadata = dedent(f"""\
                     Generated: {timestamp}
                     Sample: {sample_name}
                     Engine: {engine_display}
                     Language: {language}
-                    Seed: {seed}
+                    Seed: {actual_seed}
                     Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
 
                 # Always save WAV to temp first
-                temp_path = save_audio_to_temp(wavs[0], sr, TEMP_DIR, filename_stem)
+                temp_path = save_audio_to_temp(audio_data, sr, TEMP_DIR, filename_stem)
 
                 manual_save = _user_config.get("manual_save", False)
                 if manual_save:
@@ -719,64 +641,194 @@ class VoiceCloneTool(Tool):
             """Extract sample name from lister and pass to generate."""
             return generate_audio_handler(get_selected_sample_name(lister_value), *args)
 
-        def _get_existing_output_stems():
-            """Get existing file stems from output directory as JSON list."""
-            import json as json_mod
-            stems = set()
-            for ext in ('*.wav', '*.flac', '*.mp3'):
-                stems.update(f.stem.lower() for f in OUTPUT_DIR.glob(ext))
-            return json_mod.dumps(sorted(stems))
+        def split_generation_handler(lister_value, text, language, seed, model_selection,
+                                     qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p,
+                                     qwen_repetition_penalty, qwen_max_new_tokens,
+                                     vv_do_sample, vv_temperature, vv_top_k, vv_top_p,
+                                     vv_repetition_penalty, vv_cfg_scale, vv_num_steps, vv_paragraph_per_chunk,
+                                     lux_num_steps, lux_t_shift, lux_speed, lux_return_smooth,
+                                     lux_rms, lux_ref_duration, lux_guidance_scale,
+                                     cb_exaggeration, cb_cfg_weight, cb_temperature,
+                                     cb_repetition_penalty, cb_top_p, cb_language,
+                                     progress=gr.Progress()):
+            """Generate a separate audio clip for each paragraph with auto-naming."""
+            from modules.core_components.audio_utils import make_stem_from_text, resolve_output_stem
+            import numpy as np
 
-        def generate_or_prompt_split(split_enabled, lister_value, text, *rest_args):
-            """Generate normally or validate and prompt for base name when split mode is on."""
-            if not split_enabled:
-                return (*generate_from_lister(lister_value, text, *rest_args), gr.update())
-
-            # Split mode: validate before opening the modal
+            # Validate
             sample_name = get_selected_sample_name(lister_value)
             if not sample_name:
-                return None, "Please select a voice sample first.", "", gr.update(), gr.update()
+                return None, "Please select a voice sample first.", "", gr.update()
             if not text or not text.strip():
-                return None, "Please enter text to generate.", "", gr.update(), gr.update()
+                return None, "Please enter text to generate.", "", gr.update()
 
             paragraphs = [p.strip() for p in text.strip().split("\n") if p.strip()]
             if not paragraphs:
-                return None, "❌ No paragraphs found in text.", "", gr.update(), gr.update()
+                return None, "❌ No paragraphs found in text.", "", gr.update()
 
-            # Fetch existing stems for client-side collision check
-            existing_json = _get_existing_output_stems()
-            return None, f"Enter a base name for {len(paragraphs)} clip(s)...", "", gr.update(), existing_json
+            # Parse engine
+            engine, model_size = tts_manager.parse_model_selection(model_selection)
 
-        # JS to conditionally open the base-name input modal when split mode is on
-        open_split_modal_js = show_input_modal_js(
-            title="Clip Base Name",
-            message="Enter a base name for the audio clips.\\nEach paragraph will become a separate clip.",
-            placeholder="e.g., MyScene, Chapter1",
-            context="vc_split_"
-        )
-        conditional_modal_js = f"""
-        (splitEnabled, existingStemsJson) => {{
-            if (splitEnabled) {{
-                try {{
-                    const stems = JSON.parse(existingStemsJson || '[]');
-                    window.inputModalValidation = (value) => {{
-                        if (!value || value.trim().length === 0) {{
-                            return 'Please enter a base name';
-                        }}
-                        const clean = value.replace(/[^a-zA-Z0-9\\-_ ]/g, '').trim().replace(/ /g, '_').toLowerCase();
-                        if (!clean) return 'Please enter a valid name';
-                        const hasConflict = stems.some(s => s.startsWith(clean + '_'));
-                        if (hasConflict) {{
-                            return 'Files starting with "' + clean + '_" already exist in output. Choose another name.';
-                        }}
-                        return null;
-                    }};
-                }} catch(e) {{}}
-                const openModal = {open_split_modal_js};
-                openModal();
-            }}
-        }}
-        """
+            # Find sample
+            samples = get_available_samples()
+            sample = next((s for s in samples if s["name"] == sample_name), None)
+            if not sample:
+                return None, f"❌ Sample '{sample_name}' not found.", "", gr.update()
+
+            sample_ref_text = sample.get("ref_text") or sample.get("meta", {}).get("Text", "")
+            if not sample_ref_text.strip():
+                return None, (
+                    f"❌ No transcript found for sample '{sample_name}'.\n\n"
+                    "Please transcribe this sample first in the **Prep Samples** tab, then try again."
+                ), "", gr.update()
+
+            try:
+                # Seed
+                actual_seed = int(seed) if seed is not None else -1
+                if actual_seed < 0:
+                    actual_seed = random.randint(0, 2147483647)
+                set_seed(actual_seed)
+
+                # Auto-name from first paragraph text
+                base_stem = make_stem_from_text(paragraphs[0], sample_name=sample_name)
+                total = len(paragraphs)
+                final_stem = resolve_output_stem(base_stem, OUTPUT_DIR, clip_count=total)
+
+                # Build engine param dicts
+                qwen_params = {
+                    'do_sample': qwen_do_sample, 'temperature': qwen_temperature,
+                    'top_k': qwen_top_k, 'top_p': qwen_top_p,
+                    'repetition_penalty': qwen_repetition_penalty,
+                    'max_new_tokens': qwen_max_new_tokens,
+                }
+                vv_params = {
+                    'do_sample': vv_do_sample, 'temperature': vv_temperature,
+                    'top_k': vv_top_k, 'top_p': vv_top_p,
+                    'repetition_penalty': vv_repetition_penalty,
+                    'cfg_scale': vv_cfg_scale, 'num_steps': vv_num_steps,
+                    'paragraph_per_chunk': bool(vv_paragraph_per_chunk),
+                }
+                lux_params = {
+                    'num_steps': int(lux_num_steps), 't_shift': float(lux_t_shift),
+                    'speed': float(lux_speed), 'return_smooth': bool(lux_return_smooth),
+                    'rms': float(lux_rms), 'ref_duration': int(lux_ref_duration),
+                    'guidance_scale': float(lux_guidance_scale),
+                }
+                cb_params = {
+                    'exaggeration': float(cb_exaggeration), 'cfg_weight': float(cb_cfg_weight),
+                    'temperature': float(cb_temperature),
+                    'repetition_penalty': float(cb_repetition_penalty),
+                    'top_p': float(cb_top_p), 'language': cb_language,
+                }
+
+                # Pre-load model once
+                prompt_items = None
+                if engine == "qwen":
+                    progress(0.05, desc=f"Loading Qwen3 model ({model_size})...")
+                    model = tts_manager.get_qwen3_base(model_size)
+                    if not hasattr(model, 'talker_graph'):
+                        # Standard path — create/cache voice prompt
+                        prompt_items, _ = get_or_create_voice_prompt(
+                            model=model, sample_name=sample_name,
+                            wav_path=sample["wav_path"], ref_text=sample["ref_text"],
+                            model_size=model_size, progress_callback=progress
+                        )
+                elif engine == "vibevoice":
+                    progress(0.05, desc=f"Loading VibeVoice model ({model_size})...")
+                    tts_manager.get_vibevoice_tts(model_size)
+                elif engine == "luxtts":
+                    progress(0.05, desc="Loading LuxTTS model...")
+                elif engine == "chatterbox":
+                    progress(0.05, desc="Loading Chatterbox model...")
+
+                output_format = _user_config.get("output_format", "wav")
+                manual_save = _user_config.get("manual_save", False)
+                audio_segments = []
+
+                for idx, para in enumerate(paragraphs):
+                    clip_num = idx + 1
+                    progress(idx / total, desc=f"Generating clip {clip_num}/{total}...")
+
+                    audio_data, sr = tts_manager.generate_voice_clone_dispatch(
+                        text=para, engine=engine, model_size=model_size,
+                        sample_wav_path=sample["wav_path"], sample_name=sample_name,
+                        sample_ref_text=sample_ref_text, language=language, seed=actual_seed,
+                        qwen_params=qwen_params, vv_params=vv_params,
+                        lux_params=lux_params, cb_params=cb_params,
+                        prompt_items=prompt_items, user_config=_user_config,
+                        progress_callback=progress,
+                    )
+
+                    audio_segments.append(audio_data)
+
+                    # Save individual clip with zero-padded number
+                    clip_stem = f"{final_stem}_{clip_num:02d}"
+                    metadata = dedent(f"""\
+                        Generated: {datetime.now().strftime('%Y%m%d_%H%M%S')}
+                        Sample: {sample_name}
+                        Engine: {model_selection}
+                        Seed: {actual_seed}
+                        Clip: {clip_num}/{total}
+                        Text: {' '.join(para.split())}
+                        """)
+                    metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
+                    temp_path = save_audio_to_temp(audio_data, sr, TEMP_DIR, clip_stem)
+                    if not manual_save:
+                        save_result_to_output(temp_path, OUTPUT_DIR, output_format, metadata_out)
+                    print(f"  Clip {clip_num}/{total} saved: {clip_stem}")
+
+                # Build combined preview from all segments
+                combined_audio = np.concatenate(audio_segments)
+                preview_stem = f"{final_stem}_preview"
+                preview_metadata = dedent(f"""\
+                    Generated: {datetime.now().strftime('%Y%m%d_%H%M%S')}
+                    Sample: {sample_name}
+                    Engine: {model_selection}
+                    Seed: {actual_seed}
+                    Clips: {total}
+                    Type: Combined preview
+                    """)
+                preview_metadata_out = '\n'.join(line.lstrip() for line in preview_metadata.lstrip().splitlines())
+
+                if manual_save:
+                    # Save preview to temp; user decides whether to save all
+                    preview_path = save_audio_to_temp(combined_audio, sr, TEMP_DIR, preview_stem)
+                    # Build metadata listing all temp clip paths for batch save
+                    clip_paths = [str(TEMP_DIR / f"{final_stem}_{i+1:02d}.wav") for i in range(total)]
+                    batch_metadata = f"BATCH_SPLIT|{output_format}|{preview_metadata_out}\n" + "\n".join(clip_paths)
+                    progress(1.0, desc="Done!")
+                    if play_completion_beep:
+                        play_completion_beep()
+                    return (
+                        str(preview_path),
+                        f"Generated {total} clip(s): {final_stem}_01 ... _{total:02d}\nSeed: {actual_seed}\nClick 'Save to Output' to keep all clips.",
+                        batch_metadata,
+                        gr.update(interactive=True),
+                    )
+                else:
+                    # Save preview to output alongside clips
+                    preview_temp = save_audio_to_temp(combined_audio, sr, TEMP_DIR, preview_stem)
+                    preview_output = save_result_to_output(preview_temp, OUTPUT_DIR, output_format, preview_metadata_out)
+                    progress(1.0, desc="Done!")
+                    if play_completion_beep:
+                        play_completion_beep()
+                    return (
+                        str(preview_output),
+                        f"Generated {total} clip(s): {final_stem}_01 ... _{total:02d}\nSeed: {actual_seed}",
+                        "",
+                        gr.update(),
+                    )
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return None, f"❌ Error during split generation: {str(e)}", "", gr.update()
+
+        def generate_or_split(split_enabled, lister_value, text, *rest_args):
+            """Route between single generation and split-by-paragraph generation."""
+            if not split_enabled:
+                return generate_from_lister(lister_value, text, *rest_args)
+            return split_generation_handler(lister_value, text, *rest_args)
 
         all_gen_inputs = [
             components['split_paragraph'], components['sample_lister'],
@@ -784,13 +836,13 @@ class VoiceCloneTool(Tool):
             components['qwen_do_sample'], components['qwen_temperature'], components['qwen_top_k'], components['qwen_top_p'], components['qwen_repetition_penalty'],
             components['qwen_max_new_tokens'],
             components['vv_do_sample'], components['vv_temperature'], components['vv_top_k'], components['vv_top_p'], components['vv_repetition_penalty'],
-            components['vv_cfg_scale'], components['vv_num_steps'], components['vv_sentences_per_chunk'],
+            components['vv_cfg_scale'], components['vv_num_steps'], components['vv_paragraph_per_chunk'],
             components['luxtts_num_steps'], components['luxtts_t_shift'], components['luxtts_speed'], components['luxtts_return_smooth'],
             components['luxtts_rms'], components['luxtts_ref_duration'], components['luxtts_guidance_scale'],
             components['cb_exaggeration'], components['cb_cfg_weight'], components['cb_temperature'],
             components['cb_repetition_penalty'], components['cb_top_p'], components['cb_language_dropdown'],
         ]
-        gen_outputs = [components['output_audio'], components['clone_status'], components['_result_metadata'], components['save_result_btn'], components['_existing_stems_json']]
+        gen_outputs = [components['output_audio'], components['clone_status'], components['_result_metadata'], components['save_result_btn']]
 
         def _disable_gen_btn():
             return gr.update(interactive=False)
@@ -803,258 +855,8 @@ class VoiceCloneTool(Tool):
         ).then(
             restore_fn, outputs=restore_outputs
         ).then(
-            generate_or_prompt_split,
+            generate_or_split,
             inputs=all_gen_inputs,
-            outputs=gen_outputs,
-        ).then(
-            _enable_gen_btn, outputs=[components['generate_btn']]
-        ).then(
-            fn=None,
-            inputs=[components['split_paragraph'], components['_existing_stems_json']],
-            js=conditional_modal_js,
-        )
-
-        # ---- Split-by-paragraph batch generation (triggered by input modal) ----
-        def handle_split_generation(input_value, lister_value, text, language, seed, model_selection,
-                                    qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p,
-                                    qwen_repetition_penalty, qwen_max_new_tokens,
-                                    vv_do_sample, vv_temperature, vv_top_k, vv_top_p,
-                                    vv_repetition_penalty, vv_cfg_scale, vv_num_steps, vv_sentences_per_chunk,
-                                    lux_num_steps, lux_t_shift, lux_speed, lux_return_smooth,
-                                    lux_rms, lux_ref_duration, lux_guidance_scale,
-                                    cb_exaggeration, cb_cfg_weight, cb_temperature,
-                                    cb_repetition_penalty, cb_top_p, cb_language,
-                                    progress=gr.Progress()):
-            """Generate a separate audio clip for each paragraph."""
-            if not input_value or not input_value.startswith("vc_split_"):
-                return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-
-            # Check cancel
-            parts = input_value.split("_")
-            if len(parts) >= 3 and parts[2] == "cancel":
-                return None, "Split generation cancelled.", "", gr.update(), gr.update()
-
-            # Extract base name (strip context prefix and trailing UUID)
-            raw_name = input_value[len("vc_split_"):]
-            name_parts = raw_name.rsplit("_", 1)
-            base_name = name_parts[0] if len(name_parts) > 1 else raw_name
-            base_name = base_name.strip()
-
-            if not base_name:
-                return None, "❌ Please enter a base name.", "", gr.update(), gr.update()
-
-            # Sanitize base name for filenames
-            safe_base = "".join(c if (c.isalnum() or c in "-_ ") else "_" for c in base_name).strip()
-
-            # Split text into paragraphs
-            paragraphs = [p.strip() for p in text.strip().split("\n") if p.strip()]
-            if not paragraphs:
-                return None, "❌ No paragraphs found in text.", "", gr.update(), gr.update()
-
-            # Resolve sample
-            sample_name = get_selected_sample_name(lister_value)
-            if not sample_name:
-                return None, "❌ Please select a voice sample first.", "", gr.update(), gr.update()
-
-            samples = get_available_samples()
-            sample = None
-            for s in samples:
-                if s["name"] == sample_name:
-                    sample = s
-                    break
-            if not sample:
-                return None, f"❌ Sample '{sample_name}' not found.", "", gr.update(), gr.update()
-
-            sample_ref_text = sample.get("ref_text") or sample.get("meta", {}).get("Text", "")
-            if not sample_ref_text.strip():
-                return None, (
-                    f"❌ No transcript found for sample '{sample_name}'.\n\n"
-                    "Please transcribe this sample first in the **Prep Samples** tab, then try again."
-                ), "", gr.update(), gr.update()
-
-            try:
-                import numpy as np
-
-                # Determine engine
-                if "LuxTTS" in model_selection:
-                    engine = "luxtts"
-                    model_size = "Default"
-                elif "VibeVoice" in model_selection:
-                    engine = "vibevoice"
-                    if "Small" in model_selection:
-                        model_size = "1.5B"
-                    elif "4-bit" in model_selection:
-                        model_size = "Large (4-bit)"
-                    else:
-                        model_size = "Large"
-                elif "Chatterbox" in model_selection:
-                    engine = "chatterbox"
-                    model_size = "Multilingual" if "Multilingual" in model_selection else "Default"
-                else:
-                    engine = "qwen"
-                    model_size = "0.6B" if "Small" in model_selection else "1.7B"
-
-                # Resolve seed
-                actual_seed = int(seed) if seed is not None else -1
-                if actual_seed < 0:
-                    actual_seed = random.randint(0, 2147483647)
-                set_seed(actual_seed)
-
-                # For Qwen, prepare the prompt once
-                prompt_items = None
-                if engine == "qwen":
-                    progress(0.05, desc=f"Loading Qwen3 model ({model_size})...")
-                    model = tts_manager.get_qwen3_base(model_size)
-                    prompt_items, _ = get_or_create_voice_prompt(
-                        model=model, sample_name=sample_name,
-                        wav_path=sample["wav_path"], ref_text=sample["ref_text"],
-                        model_size=model_size, progress_callback=progress
-                    )
-                elif engine == "vibevoice":
-                    progress(0.05, desc=f"Loading VibeVoice model ({model_size})...")
-                    tts_manager.get_vibevoice_tts(model_size)
-                elif engine == "luxtts":
-                    progress(0.05, desc="Loading LuxTTS model...")
-                elif engine == "chatterbox":
-                    progress(0.05, desc="Loading Chatterbox model...")
-
-                output_format = _user_config.get("output_format", "wav")
-                manual_save = _user_config.get("manual_save", False)
-                total = len(paragraphs)
-                audio_segments = []
-
-                for idx, para in enumerate(paragraphs):
-                    clip_num = idx + 1
-                    progress(idx / total, desc=f"Generating clip {clip_num}/{total}...")
-
-                    if engine == "qwen":
-                        audio_data, sr = tts_manager.generate_voice_clone_qwen(
-                            text=para, language=language, prompt_items=prompt_items, seed=actual_seed,
-                            do_sample=qwen_do_sample, temperature=qwen_temperature,
-                            top_k=qwen_top_k, top_p=qwen_top_p,
-                            repetition_penalty=qwen_repetition_penalty,
-                            max_new_tokens=qwen_max_new_tokens, model_size=model_size)
-                    elif engine == "vibevoice":
-                        audio_data, sr = tts_manager.generate_voice_clone_vibevoice(
-                            text=para, voice_sample_path=sample["wav_path"], seed=actual_seed,
-                            do_sample=vv_do_sample, temperature=vv_temperature,
-                            top_k=vv_top_k, top_p=vv_top_p,
-                            repetition_penalty=vv_repetition_penalty,
-                            cfg_scale=vv_cfg_scale, num_steps=vv_num_steps,
-                            sentences_per_chunk=int(vv_sentences_per_chunk),
-                            model_size=model_size,
-                            user_config=shared_state.get('_user_config', {}))
-                    elif engine == "luxtts":
-                        audio_data, sr, _ = tts_manager.generate_voice_clone_luxtts(
-                            text=para, voice_sample_path=sample["wav_path"],
-                            sample_name=sample_name,
-                            num_steps=int(lux_num_steps), t_shift=float(lux_t_shift),
-                            speed=float(lux_speed), return_smooth=bool(lux_return_smooth),
-                            rms=float(lux_rms), ref_duration=int(lux_ref_duration),
-                            guidance_scale=float(lux_guidance_scale), seed=actual_seed,
-                            ref_text=sample.get("ref_text") or sample.get("meta", {}).get("Text"),
-                            progress_callback=progress)
-                    elif engine == "chatterbox":
-                        if model_size == "Multilingual":
-                            from modules.core_components.constants import CHATTERBOX_LANG_TO_CODE
-                            lang_code = CHATTERBOX_LANG_TO_CODE.get(cb_language, "en")
-                            audio_data, sr = tts_manager.generate_voice_clone_chatterbox_multilingual(
-                                text=para, language_code=lang_code,
-                                voice_sample_path=sample["wav_path"], seed=actual_seed,
-                                exaggeration=float(cb_exaggeration), cfg_weight=float(cb_cfg_weight),
-                                temperature=float(cb_temperature),
-                                repetition_penalty=float(cb_repetition_penalty), top_p=float(cb_top_p))
-                        else:
-                            audio_data, sr = tts_manager.generate_voice_clone_chatterbox(
-                                text=para, voice_sample_path=sample["wav_path"], seed=actual_seed,
-                                exaggeration=float(cb_exaggeration), cfg_weight=float(cb_cfg_weight),
-                                temperature=float(cb_temperature),
-                                repetition_penalty=float(cb_repetition_penalty), top_p=float(cb_top_p))
-
-                    # Collect segment for combined preview
-                    audio_segments.append(audio_data)
-
-                    # Save individual clip
-                    clip_stem = f"{safe_base}_{clip_num:03d}"
-                    metadata = dedent(f"""\
-                        Generated: {datetime.now().strftime('%Y%m%d_%H%M%S')}
-                        Sample: {sample_name}
-                        Engine: {model_selection}
-                        Seed: {actual_seed}
-                        Clip: {clip_num}/{total}
-                        Base Name: {base_name}
-                        Text: {' '.join(para.split())}
-                        """)
-                    metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
-                    temp_path = save_audio_to_temp(audio_data, sr, TEMP_DIR, clip_stem)
-                    if not manual_save:
-                        save_result_to_output(temp_path, OUTPUT_DIR, output_format, metadata_out)
-                    print(f"  Clip {clip_num}/{total} saved: {clip_stem}")
-
-                # Build combined preview from all segments
-                combined_audio = np.concatenate(audio_segments)
-                preview_stem = f"{safe_base}_preview"
-                preview_metadata = dedent(f"""\
-                    Generated: {datetime.now().strftime('%Y%m%d_%H%M%S')}
-                    Sample: {sample_name}
-                    Engine: {model_selection}
-                    Seed: {actual_seed}
-                    Clips: {total}
-                    Base Name: {base_name}
-                    Type: Combined preview
-                    """)
-                preview_metadata_out = '\n'.join(line.lstrip() for line in preview_metadata.lstrip().splitlines())
-
-                if manual_save:
-                    # Save preview to temp; user decides whether to save all
-                    preview_path = save_audio_to_temp(combined_audio, sr, TEMP_DIR, preview_stem)
-                    # Build metadata listing all temp clip paths for batch save
-                    clip_paths = [str(TEMP_DIR / f"{safe_base}_{i+1:03d}.wav") for i in range(total)]
-                    batch_metadata = f"BATCH_SPLIT|{output_format}|{preview_metadata_out}\n" + "\n".join(clip_paths)
-                    progress(1.0, desc="Done!")
-                    if play_completion_beep:
-                        play_completion_beep()
-                    return (
-                        str(preview_path),
-                        f"Generated {total} clip(s) with base name: {base_name}\nSeed: {actual_seed}\nClick 'Save to Output' to keep all clips.",
-                        batch_metadata,
-                        gr.update(interactive=True),
-                        gr.update(),
-                    )
-                else:
-                    # Save preview to output alongside clips
-                    preview_temp = save_audio_to_temp(combined_audio, sr, TEMP_DIR, preview_stem)
-                    preview_output = save_result_to_output(preview_temp, OUTPUT_DIR, output_format, preview_metadata_out)
-                    progress(1.0, desc="Done!")
-                    if play_completion_beep:
-                        play_completion_beep()
-                    return (
-                        str(preview_output),
-                        f"Generated {total} clip(s) with base name: {base_name}\nSeed: {actual_seed}",
-                        "",
-                        gr.update(),
-                        gr.update(),
-                    )
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                return None, f"❌ Error during split generation: {str(e)}", "", gr.update(), gr.update()
-
-        input_trigger.change(
-            _disable_gen_btn, outputs=[components['generate_btn']]
-        ).then(
-            handle_split_generation,
-            inputs=[input_trigger, components['sample_lister'],
-                    components['text_input'], components['language_dropdown'], components['seed_input'], components['clone_model_dropdown'],
-                    components['qwen_do_sample'], components['qwen_temperature'], components['qwen_top_k'], components['qwen_top_p'], components['qwen_repetition_penalty'],
-                    components['qwen_max_new_tokens'],
-                    components['vv_do_sample'], components['vv_temperature'], components['vv_top_k'], components['vv_top_p'], components['vv_repetition_penalty'],
-                    components['vv_cfg_scale'], components['vv_num_steps'], components['vv_sentences_per_chunk'],
-                    components['luxtts_num_steps'], components['luxtts_t_shift'], components['luxtts_speed'], components['luxtts_return_smooth'],
-                    components['luxtts_rms'], components['luxtts_ref_duration'], components['luxtts_guidance_scale'],
-                    components['cb_exaggeration'], components['cb_cfg_weight'], components['cb_temperature'],
-                    components['cb_repetition_penalty'], components['cb_top_p'], components['cb_language_dropdown']],
             outputs=gen_outputs,
         ).then(
             _enable_gen_btn, outputs=[components['generate_btn']]

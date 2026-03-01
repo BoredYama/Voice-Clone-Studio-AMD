@@ -383,8 +383,10 @@ class VoicePresetsTool(Tool):
                 )
 
                 progress(0.8, desc="Saving audio...")
+                from modules.core_components.audio_utils import make_stem_from_text, resolve_output_stem
+                stem = make_stem_from_text(text_to_generate, sample_name=speaker)
+                filename_stem = resolve_output_stem(stem, OUTPUT_DIR, clip_count=1)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename_stem = f"custom_{speaker}_{timestamp}"
 
                 metadata = dedent(f"""\
                     Generated: {timestamp}
@@ -481,8 +483,10 @@ class VoicePresetsTool(Tool):
                 )
 
                 progress(0.8, desc="Saving audio...")
+                from modules.core_components.audio_utils import make_stem_from_text, resolve_output_stem
+                stem = make_stem_from_text(text_to_generate, sample_name=speaker_name)
+                filename_stem = resolve_output_stem(stem, OUTPUT_DIR, clip_count=1)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename_stem = f"trained_{speaker_name}_{timestamp}"
 
                 icl_active = icl_enabled and voice_sample_path is not None
                 metadata = dedent(f"""\

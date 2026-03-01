@@ -76,7 +76,7 @@ def create_qwen_advanced_params(
                     choices=emotion_choices,
                     value=initial_emotion,
                     label="🎭 Emotion Preset",
-                    info="Quick presets that adjust parameters for different emotions",
+                    info="Quick presets that adjust parameters to fake different emotions",
                     scale=3
                 )
                 components['emotion_intensity'] = gr.Slider(
@@ -188,8 +188,8 @@ def create_vibevoice_advanced_params(
     initial_top_k=50,
     initial_top_p=1.0,
     initial_repetition_penalty=1.1,
-    initial_sentences_per_chunk=0,
-    include_sentences_per_chunk=False,
+    initial_paragraph_per_chunk=False,
+    include_paragraph_per_chunk=False,
     visible=True
 ):
     """
@@ -203,8 +203,8 @@ def create_vibevoice_advanced_params(
         initial_top_k: Default top_k
         initial_top_p: Default top_p
         initial_repetition_penalty: Default penalty
-        initial_sentences_per_chunk: Default sentences per chunk (0 = no split)
-        include_sentences_per_chunk: Show sentences per chunk control
+        initial_paragraph_per_chunk: Default paragraph per chunk toggle
+        include_paragraph_per_chunk: Show paragraph per chunk control
         visible: Make accordion visible
 
     Returns:
@@ -237,14 +237,11 @@ def create_vibevoice_advanced_params(
                 value=initial_do_sample,
                 info="Enable stochastic sampling (default: False)"
             )
-            if include_sentences_per_chunk:
-                components['sentences_per_chunk'] = gr.Slider(
-                    minimum=0,
-                    maximum=10,
-                    value=initial_sentences_per_chunk,
-                    step=1,
-                    label="Sentences per Chunk",
-                    info="Split long text into chunks. (0 = no split)."
+            if include_paragraph_per_chunk:
+                components['paragraph_per_chunk'] = gr.Checkbox(
+                    label="Paragraph per Chunk",
+                    value=initial_paragraph_per_chunk,
+                    info="Process text into chunks by paragraph for better quality. (Split using Enter key)"
                 )
 
         with gr.Row():
@@ -322,7 +319,7 @@ def create_qwen_emotion_controls(
             choices=emotion_choices,
             value=initial_emotion,
             label="🎭 Emotion Preset",
-            info="Quick presets that adjust parameters for different emotions",
+            info="Quick presets that adjust parameters to fake different emotions",
             scale=3
         )
         components['emotion_intensity'] = gr.Slider(

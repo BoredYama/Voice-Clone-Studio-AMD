@@ -8,13 +8,35 @@ import torch
 from pathlib import Path
 
 
-def get_device():
-    """Get the best available device (CUDA > MPS > CPU)."""
+def get_device(gpu_index=0):
+    """Get the best available device (CUDA > MPS > CPU).
+
+    Args:
+        gpu_index: CUDA GPU index to use (default 0). Ignored for MPS/CPU.
+    """
     if torch.cuda.is_available():
-        return "cuda:0"
+        gpu_index = int(gpu_index) if gpu_index is not None else 0
+        if gpu_index >= torch.cuda.device_count():
+            gpu_index = 0
+        return f"cuda:{gpu_index}"
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+def get_available_gpus():
+    """Return list of available CUDA GPU names for UI dropdowns.
+
+    Returns:
+        List of tuples: [(index, name), ...] or empty list if no CUDA.
+    """
+    if not torch.cuda.is_available():
+        return []
+    gpus = []
+    for i in range(torch.cuda.device_count()):
+        name = torch.cuda.get_device_name(i)
+        gpus.append((i, name))
+    return gpus
 
 
 def get_dtype(device=None):
