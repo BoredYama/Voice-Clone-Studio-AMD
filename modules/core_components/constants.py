@@ -349,7 +349,34 @@ SUPPORTED_MODELS = {
     # LuxTTS models
     "luxtts",
     # Whisper models
-    "whisper"
+    "whisper",
+    # VibeVoice Streaming model
+    "vibevoice-streaming-0.5b",
+}
+
+# ============================================================================
+# VIBEVOICE STREAMING VOICES (0.5B Baked-In Speakers)
+# ============================================================================
+
+VIBEVOICE_STREAMING_VOICES = [
+    "Carter",      # Male (English)
+    "Davis",       # Male (English)
+    "Emma",        # Female (English)
+    "Frank",       # Male (English)
+    "Grace",       # Female (English)
+    "Mike",        # Male (English)
+    "Samuel",      # Male (Indian English)
+]
+
+# Maps display name -> GitHub repo filename (without .pt extension)
+VIBEVOICE_STREAMING_VOICE_FILES = {
+    "Carter":  "en-Carter_man",
+    "Davis":   "en-Davis_man",
+    "Emma":    "en-Emma_woman",
+    "Frank":   "en-Frank_man",
+    "Grace":   "en-Grace_woman",
+    "Mike":    "en-Mike_man",
+    "Samuel":  "in-Samuel_man",
 }
 
 # ============================================================================
@@ -386,7 +413,7 @@ DEFAULT_CONFIG = {
     "datasets_folder": "datasets",
     "temp_folder": "temp",
     "models_folder": "models",
-    "trained_models_folder": "models",
+    "trained_models_folder": "trained_models",
     "emotions": None  # Initialized separately
 }
 
@@ -413,6 +440,36 @@ VIBEVOICE_GENERATION_DEFAULTS = {
     "repetition_penalty": 1.1,
     "cfg_scale": 3.0,
     "num_steps": 20
+}
+
+# VibeVoice Streaming Generation Defaults
+VIBEVOICE_STREAMING_GENERATION_DEFAULTS = {
+    "cfg_scale": 1.5,
+    "ddpm_steps": 20,
+}
+
+# Training Defaults — Qwen3
+QWEN_TRAINING_DEFAULTS = {
+    "batch_size": 1,
+    "learning_rate": 2e-6,
+    "num_epochs": 10,
+    "save_interval": 5,
+}
+
+# Training Defaults — VibeVoice
+VIBEVOICE_TRAINING_DEFAULTS = {
+    "batch_size": 1,
+    "learning_rate": 5e-5,
+    "num_epochs": 10,
+    "save_interval": 5,
+    "ddpm_batch_mul": 4,
+    "diffusion_loss_weight": 1.4,
+    "ce_loss_weight": 0.04,
+    "voice_prompt_drop": 1.0,
+    "train_diffusion_head": True,
+    "gradient_accumulation": 8,
+    "warmup_steps": 5,
+    "ema_enabled": True,
 }
 
 # LuxTTS Generation Defaults

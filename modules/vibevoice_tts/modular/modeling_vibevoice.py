@@ -19,7 +19,7 @@ from transformers.utils import logging
 
 from .modular_vibevoice_tokenizer import VibeVoiceTokenizerStreamingCache, VibeVoiceAcousticTokenizerModel, VibeVoiceSemanticTokenizerModel
 from .modular_vibevoice_diffusion_head import VibeVoiceDiffusionHead
-from vibevoice_tts.schedule.dpm_solver import DPMSolverMultistepScheduler
+from modules.vibevoice_tts.schedule.dpm_solver import DPMSolverMultistepScheduler
 
 from .configuration_vibevoice import VibeVoiceConfig
 
@@ -261,9 +261,9 @@ class VibeVoiceForConditionalGeneration(VibeVoicePreTrainedModel):
                     "constant",
                     0,
                 )
-            print("✅ Tied input and output embeddings using standard assignment.")
+            print("[OK] Tied input and output embeddings using standard assignment.")
         else:
-            print("ℹ️  tie_word_embeddings is False, not tying weights.")
+            print("[INFO] tie_word_embeddings is False, not tying weights.")
 
     # Also, ensure set_output_embeddings is safe, though your implementation looks okay.
     # The key is to avoid calling it after accelerator.prepare().
@@ -373,8 +373,8 @@ class VibeVoiceForConditionalGeneration(VibeVoicePreTrainedModel):
                     x[acoustic_input_mask] = speech_all_connect_features[speech_masks] + semantic_speech_all_connect_features[speech_masks]
                 else:
                     x[acoustic_input_mask] = speech_all_connect_features[speech_masks]
-                speech_features = speech_all_features[speeches_loss_input.unsqueeze(-1) & speech_masks] # only part audio need diffuse
-                speech_connect_features = speech_all_connect_features[speeches_loss_input.unsqueeze(-1) & speech_masks]
+                speech_features = speech_all_features[speeches_loss_input & speech_masks] # only part audio need diffuse
+                speech_connect_features = speech_all_connect_features[speeches_loss_input & speech_masks]
         else:
             speech_features, speech_connect_features = self.forward_speech_features(
                     speech_tensors=speech_tensors.type_as(x) if speech_tensors is not None else None,
@@ -411,7 +411,11 @@ class VibeVoiceForConditionalGeneration(VibeVoicePreTrainedModel):
         diffusion_loss = None
         # This block is executed only if we are in a context that involves speech.
         if speech_tensors is not None and acoustic_loss_mask.sum().item() > 0:
-            condition_features = hidden_states[acoustic_loss_mask]
+            # Build conditioning mask from positions whose NEXT token is a speech latent (shift left by 1)
+            cond_mask = torch.zeros_like(acoustic_loss_mask, dtype=torch.bool)
+            cond_mask[:, :-1] = acoustic_loss_mask[:, 1:]
+            cond_mask[:, 0] = False
+            condition_features = hidden_states[cond_mask]
             
             speech_len, latent_size = speech_features.shape
             
@@ -452,7 +456,8 @@ class VibeVoiceForConditionalGeneration(VibeVoicePreTrainedModel):
 
             diffusion_loss = F.mse_loss(model_output.float(), target_for_loss.float(), reduction='sum')
             if latent_size > 0 and ddpm_batch_mul > 0:
-                diffusion_loss = diffusion_loss / latent_size / ddpm_batch_mul
+                # Normalize by latent dim, number of sampled diffusion steps per latent, and number of speech tokens
+                diffusion_loss = diffusion_loss / latent_size / ddpm_batch_mul / max(speech_len, 1)
             else:
                 diffusion_loss = torch.tensor(0.0, device=diffusion_loss.device)
         

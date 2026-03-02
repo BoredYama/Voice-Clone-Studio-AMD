@@ -15,8 +15,8 @@ from pathlib import Path
 
 # Import all tool modules here
 from modules.core_components.tools import voice_clone
-from modules.core_components.tools import voice_changer
 from modules.core_components.tools import voice_presets
+from modules.core_components.tools import voice_changer
 from modules.core_components.tools import conversation
 from modules.core_components.tools import voice_design
 from modules.core_components.tools import sound_effects
@@ -30,8 +30,8 @@ from modules.core_components.tools import settings
 # Format: 'tool_name': (module, ToolConfig)
 ALL_TOOLS = {
     'voice_clone': (voice_clone, voice_clone.VoiceCloneTool.config),
-    'voice_changer': (voice_changer, voice_changer.VoiceChangerTool.config),
     'voice_presets': (voice_presets, voice_presets.VoicePresetsTool.config),
+    'voice_changer': (voice_changer, voice_changer.VoiceChangerTool.config),
     'conversation': (conversation, conversation.ConversationTool.config),
     'voice_design': (voice_design, voice_design.VoiceDesignTool.config),
     'sound_effects': (sound_effects, sound_effects.SoundEffectsTool.config),
@@ -297,7 +297,7 @@ def load_config():
         "datasets_folder": "datasets",
         "temp_folder": "temp",
         "models_folder": "models",
-        "trained_models_folder": "models",
+        "trained_models_folder": "trained_models",
         "emotions": None,
         "conv_model_type": "Qwen Speakers",
         "conv_model_size": "Large",
@@ -761,7 +761,11 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         get_trained_models as get_trained_models_util,
         get_trained_model_names as get_trained_model_names_util,
         train_model as train_model_util,
-        download_model_from_huggingface as download_model_util
+        download_model_from_huggingface as download_model_util,
+        get_trained_vibevoice_models as get_trained_vibevoice_models_util,
+        train_vibevoice_model as train_vibevoice_model_util,
+        stop_training as stop_training_util,
+        is_training_active as is_training_active_util,
     )
 
     # Import audio utilities BEFORE building shared_state
@@ -881,6 +885,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'ASR_ENGINES': constants.get('ASR_ENGINES', {}),
         'ASR_OPTIONS': constants.get('ASR_OPTIONS', []),
         'DEFAULT_ASR_MODEL': constants.get('DEFAULT_ASR_MODEL', 'Qwen3 ASR - Large'),
+        'VIBEVOICE_STREAMING_VOICES': constants.get('VIBEVOICE_STREAMING_VOICES', []),
         'WHISPER_AVAILABLE': WHISPER_AVAILABLE,
         'QWEN3_ASR_AVAILABLE': QWEN3_ASR_AVAILABLE,
         'DEEPFILTER_AVAILABLE': DEEPFILTER_AVAILABLE,
@@ -911,9 +916,9 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'main_tabs_component': None,  # Set to gr.Tabs component after creation in main app
 
         # Helper functions
-        'get_trained_models': lambda: get_trained_models_util(directories.get('OUTPUT_DIR').parent / user_config.get("models_folder", "models")),
+        'get_trained_models': lambda: get_trained_models_util(directories.get('OUTPUT_DIR').parent / user_config.get("trained_models_folder", "trained_models")),
         'get_trained_model_names': lambda: get_trained_model_names_util(
-            directories.get('OUTPUT_DIR').parent / user_config.get("trained_models_folder", "models")
+            directories.get('OUTPUT_DIR').parent / user_config.get("trained_models_folder", "trained_models")
         ),
         'train_model': lambda folder, speaker_name, ref_audio, batch_size, lr, epochs, save_interval, progress=None: train_model_util(
             folder, speaker_name, ref_audio, batch_size, lr, epochs, save_interval,
@@ -921,6 +926,22 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
             directories.get('OUTPUT_DIR').parent,  # project_root
             play_completion_beep, progress
         ),
+        'get_trained_vibevoice_models': lambda: get_trained_vibevoice_models_util(
+            directories.get('OUTPUT_DIR').parent / user_config.get("trained_models_folder", "trained_models")
+        ),
+        'train_vibevoice_model': lambda folder, speaker_name, batch_size, lr, epochs, save_interval, ddpm_batch_mul, diffusion_loss_weight, ce_loss_weight, voice_prompt_drop, train_diffusion_head, gradient_accumulation, warmup_steps, ema_decay, progress=None: train_vibevoice_model_util(
+            folder, speaker_name, batch_size, lr, epochs,
+            save_interval, ddpm_batch_mul, diffusion_loss_weight,
+            ce_loss_weight, voice_prompt_drop, train_diffusion_head,
+            gradient_accumulation, warmup_steps, ema_decay,
+            user_config, directories.get('DATASETS_DIR'),
+            directories.get('OUTPUT_DIR').parent,  # project_root
+            play_completion_beep, progress
+        ),
+
+        # Training control
+        'stop_training': stop_training_util,
+        'is_training_active': is_training_active_util,
 
         # Dataset management helpers
         'get_dataset_folders': get_dataset_folders,
@@ -1138,7 +1159,7 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
 
     print(f"[*] Output: {OUTPUT_DIR}")
     from modules.core_components.ai_models.model_utils import get_trained_models
-    models_dir = project_root / user_config.get("models_folder", "models")
+    models_dir = project_root / user_config.get("trained_models_folder", "trained_models")
     print(f"[*] Found {len(get_trained_models(models_dir))} trained models")
     print(f"\n✓ {ToolClass.config.name} UI loaded successfully!")
     print(f"[*] Launching on http://127.0.0.1:{port}")

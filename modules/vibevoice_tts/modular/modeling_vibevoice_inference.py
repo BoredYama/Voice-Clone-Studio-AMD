@@ -17,7 +17,7 @@ from transformers.utils import logging
 # from .modular_vibevoice_tokenizer import VibeVoiceTokenizerStreamingCache, VibeVoiceAcousticTokenizerModel, VibeVoiceSemanticTokenizerModel
 from .modular_vibevoice_tokenizer import VibeVoiceTokenizerStreamingCache, VibeVoiceTokenizerEncoderOutput
 from .modular_vibevoice_diffusion_head import VibeVoiceDiffusionHead
-from vibevoice_tts.schedule.dpm_solver import DPMSolverMultistepScheduler
+from modules.vibevoice_tts.schedule.dpm_solver import DPMSolverMultistepScheduler
 
 from .configuration_vibevoice import VibeVoiceConfig
 
@@ -401,6 +401,7 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         speech_tensors: Optional[torch.FloatTensor] = None,
         speech_masks: Optional[torch.BoolTensor] = None,
         speech_input_mask: Optional[torch.BoolTensor] = None,
+        is_prefill: bool = True,
         return_speech: bool = True,
         cfg_scale: float = 1.0,
         stop_check_fn: Optional[Callable[[], bool]] = None,
@@ -452,7 +453,6 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         device = input_ids.device
         finished_tags = torch.zeros(batch_size, dtype=torch.bool, device=device)
         correct_cnt = torch.zeros(batch_size, dtype=torch.long, device=device)
-        is_prefill = True
         inputs_embeds = None
         verbose = kwargs.get("verbose", False)
 
@@ -526,11 +526,13 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
             if is_prefill:
                 # we process the speech inputs only during the first generation step
-                prefill_inputs = {
-                    "speech_tensors": speech_tensors.to(device=device),
-                    "speech_masks": speech_masks.to(device),
-                    "speech_input_mask": speech_input_mask.to(device),
-                }
+                prefill_inputs = {}
+                if speech_tensors is not None:
+                    prefill_inputs["speech_tensors"] = speech_tensors.to(device=device)
+                if speech_masks is not None:
+                    prefill_inputs["speech_masks"] = speech_masks.to(device)
+                if speech_input_mask is not None:
+                    prefill_inputs["speech_input_mask"] = speech_input_mask.to(device)
                 is_prefill = False
             else:
                 _ = model_inputs.pop('inputs_embeds', None)

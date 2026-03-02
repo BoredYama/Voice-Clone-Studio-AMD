@@ -44,6 +44,9 @@ deepfilternet
 s3tokenizer
 conformer
 
+# VibeVoice LoRA training
+peft
+
 # Optional performance enhancements (install separately for best performance):
 # - Flash Attention 2 (fast): pip install flash-attn --no-build-isolation
 
