@@ -246,6 +246,8 @@ class TrainModelTool(Tool):
         train_model = shared_state['train_model']
         train_vibevoice_model = shared_state['train_vibevoice_model']
         stop_training = shared_state['stop_training']
+        tts_manager = shared_state.get('tts_manager')
+        asr_manager = shared_state.get('asr_manager')
         input_trigger = shared_state['input_trigger']
         show_input_modal_js = shared_state['show_input_modal_js']
         DATASETS_DIR = shared_state['DATASETS_DIR']
@@ -441,6 +443,12 @@ class TrainModelTool(Tool):
                 return gr.update()
 
             speaker_name = "_".join(parts[2:-1])
+
+            # Unload all models to free VRAM before training
+            if tts_manager:
+                tts_manager.unload_all()
+            if asr_manager:
+                asr_manager.unload_all()
 
             if model_type == "VibeVoice":
                 return train_vibevoice_model(
