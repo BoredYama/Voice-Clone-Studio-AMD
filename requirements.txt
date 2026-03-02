@@ -37,8 +37,9 @@ av>=14.0.1
 # 4-bit quantization support (all platforms)
 bitsandbytes
 
-# Voice isolation and denoising
-deepfilternet
+# Voice isolation and denoising (optional - requires Rust compiler to build from source)
+# DeepFilterNet is installed separately by setup scripts with graceful fallback
+# pip install deepfilternet
 
 # Chatterbox Voice Conversion & TTS (vendored in modules/chatterbox/)
 s3tokenizer

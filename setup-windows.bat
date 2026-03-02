@@ -88,8 +88,8 @@ set PYTHON_CMD=
 REM First try the py launcher to find a compatible version
 where py >nul 2>&1
 if %errorlevel% equ 0 (
-    REM Try 3.12 first, then 3.11, then 3.10
-    for %%V in (3.12 3.11 3.10) do (
+    REM Try 3.11 first (best compatibility), then 3.10, then 3.12
+    for %%V in (3.11 3.10 3.12) do (
         if not defined PYTHON_CMD (
             py -%%V --version >nul 2>&1
             if not errorlevel 1 (
@@ -228,6 +228,16 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
+
+REM DeepFilterNet audio denoising (optional - requires Rust compiler for source build)
+echo Installing DeepFilterNet (audio denoising)...
+pip install deepfilternet
+if %errorlevel% neq 0 (
+    echo WARNING: DeepFilterNet installation failed (requires Rust compiler to build from source).
+    echo Audio denoising will not be available, but all other features will work normally.
+    echo To install later: Install Rust from https://rustup.rs then run: pip install deepfilternet
+)
+echo.
 
 REM Faster Qwen3 TTS (CUDA graph acceleration, lightweight - auto-install)
 echo Installing Faster Qwen3 TTS (CUDA graph acceleration)...

@@ -11,7 +11,7 @@ echo ""
 
 # Find a compatible Python version (3.10-3.12, 3.13+ not supported)
 PYTHON_CMD=""
-for PYVER in python3.12 python3.11 python3.10; do
+for PYVER in python3.11 python3.10 python3.12; do
     if command -v "$PYVER" >/dev/null 2>&1; then
         PYTHON_CMD="$PYVER"
         break
@@ -117,6 +117,17 @@ if [ -f "requirements.txt" ]; then
 else
     echo "⚠️  requirements.txt not found!"
     exit 1
+fi
+
+# DeepFilterNet audio denoising (optional - requires Rust compiler for source build)
+echo ""
+echo "Installing DeepFilterNet (audio denoising)..."
+if pip install deepfilternet; then
+    echo "DeepFilterNet installed successfully!"
+else
+    echo "WARNING: DeepFilterNet installation failed (requires Rust compiler to build from source)."
+    echo "Audio denoising will not be available, but all other features will work normally."
+    echo "To install later: Install Rust from https://rustup.rs then run: pip install deepfilternet"
 fi
 
 # Faster Qwen3 TTS (CUDA graph acceleration, lightweight - auto-install)
