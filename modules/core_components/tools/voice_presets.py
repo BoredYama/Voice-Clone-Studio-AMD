@@ -64,15 +64,15 @@ class VoicePresetsTool(Tool):
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
 
-        ALL_VOICE_TYPES = ["Qwen Trained", "VibeVoice Trained", "Qwen Speakers", "VibeVoice Speakers"]
+        ALL_VOICE_TYPES = ["VibeVoice Trained", "Qwen Trained", "VibeVoice Speakers", "Qwen Speakers"]
 
         with gr.TabItem("Voice Presets", id="tab_voice_presets") as voice_presets_tab:
             components['voice_presets_tab'] = voice_presets_tab
             gr.Markdown("Generate with Qwen3 or VibeVoice trained models and speakers")
 
-            initial_voice_type = _user_config.get("voice_type", "Qwen Trained")
+            initial_voice_type = _user_config.get("voice_type", "VibeVoice Trained")
             if initial_voice_type not in ALL_VOICE_TYPES:
-                initial_voice_type = "Qwen Trained"
+                initial_voice_type = "VibeVoice Trained"
             is_premium = (initial_voice_type.strip() == "Qwen Speakers")
             is_vv_trained = (initial_voice_type.strip() == "VibeVoice Trained")
             is_vv_streaming = (initial_voice_type.strip() == "VibeVoice Speakers")
@@ -237,10 +237,40 @@ class VoicePresetsTool(Tool):
                         )
                         components['vv_refresh_trained_btn'] = gr.Button("Refresh", size="sm", visible=False)
 
+                        # Optional voice sample for additional conditioning
+                        components['vv_trained_use_sample'] = gr.Checkbox(
+                            label="Apply to Voice Sample",
+                            value=False,
+                            info="Apply to sample for more expressive results."
+                        )
+
+                        components['vv_trained_sample_section'] = gr.Column(visible=False)
+                        with components['vv_trained_sample_section']:
+                            components['vv_trained_lora_scale'] = gr.Slider(
+                                minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                                label="LoRA Strength"
+                            )
+
+                            components['vv_trained_sample_lister'] = FileLister(
+                                value=get_sample_choices(),
+                                height=150,
+                                show_footer=False,
+                                interactive=True,
+                            )
+
+                            components['vv_trained_audio_preview'] = gr.Audio(
+                                label="Preview",
+                                type="filepath",
+                                interactive=False,
+                                elem_id="vv-trained-audio-preview"
+                            )
+
                         vv_trained_tip = dedent("""\
                         **VibeVoice Trained Models:**
 
-                        Voices trained with VibeVoice LoRA in the Train Model tab. The voice identity is baked into the LoRA weights, so no reference audio is needed.
+                        Voices trained with VibeVoice LoRA in the Train Model tab.\n
+
+                        **Voice Sample:** Enable the checkbox and select a voice sample to combine with the LoRA for additional voice conditioning.\n
 
                         *Tip: Higher epochs = better trained, but watch for overfit*
                         """)
@@ -714,6 +744,7 @@ class VoicePresetsTool(Tool):
                 text_to_generate, language, vv_trained_model, seed,
                 do_sample=False, temperature=1.0, top_k=50, top_p=1.0,
                 repetition_penalty=1.0, cfg_scale=1.3, num_steps=10,
+                vv_use_sample=False, vv_sample_name=None, lora_scale=1.0,
                 progress=gr.Progress()):
             """Generate audio using a trained VibeVoice LoRA checkpoint."""
             if not text_to_generate or not text_to_generate.strip():
@@ -738,7 +769,35 @@ class VoicePresetsTool(Tool):
                 seed = int(seed) if seed is not None else -1
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
-                progress(0.1, desc=f"Loading VibeVoice LoRA ({speaker_name})...")
+
+                # Resolve voice sample path if enabled and selected
+                voice_sample_path = None
+                sample_display = ""
+                if vv_use_sample and vv_sample_name:
+                    # vv_sample_name comes from FileLister — extract selected filename
+                    selected_name = None
+                    if isinstance(vv_sample_name, dict):
+                        selected = vv_sample_name.get("selected", [])
+                        if len(selected) == 1:
+                            selected_name = selected[0]
+                    elif isinstance(vv_sample_name, str) and vv_sample_name not in ["(No samples found)"]:
+                        selected_name = vv_sample_name
+
+                    if selected_name:
+                        from modules.core_components.tools import strip_sample_extension, load_sample_details
+                        bare_name = strip_sample_extension(selected_name)
+                        wav_path, _, _ = load_sample_details(bare_name)
+                        if wav_path:
+                            voice_sample_path = wav_path
+                            sample_display = bare_name
+                    elif vv_use_sample:
+                        return None, "❌ Please select a voice sample or uncheck 'Use Voice Sample'.", "", gr.update()
+
+                # LoRA strength only applies when using a voice sample
+                effective_lora_scale = float(lora_scale) if voice_sample_path else 1.0
+
+                mode_desc = f"LoRA + sample ({sample_display})" if voice_sample_path else "LoRA only"
+                progress(0.1, desc=f"Loading VibeVoice LoRA ({speaker_name}, {mode_desc})...")
                 audio_data, sr = tts_manager.generate_with_trained_vibevoice(
                     text=text_to_generate,
                     language=language,
@@ -752,6 +811,8 @@ class VoicePresetsTool(Tool):
                     cfg_scale=float(cfg_scale),
                     num_steps=int(num_steps),
                     user_config=user_config,
+                    voice_sample_path=voice_sample_path,
+                    lora_scale=effective_lora_scale,
                 )
                 progress(0.8, desc="Saving audio...")
                 from modules.core_components.audio_utils import make_stem_from_text, resolve_output_stem
@@ -763,6 +824,8 @@ class VoicePresetsTool(Tool):
                     Type: VibeVoice Trained (LoRA)
                     Model: {model_path}
                     Speaker: {speaker_name}
+                    Voice Sample: {sample_display if sample_display else 'None'}
+                    LoRA Strength: {lora_scale}
                     Language: {language}
                     Seed: {seed}
                     CFG Scale: {cfg_scale}
@@ -776,14 +839,16 @@ class VoicePresetsTool(Tool):
                     progress(1.0, desc="Done!")
                     if play_completion_beep:
                         play_completion_beep()
-                    return str(temp_path), f"Speaker: {speaker_name}\nSeed: {seed} | VibeVoice Trained\nClick 'Save to Output' to keep this result.", metadata_out, gr.update(interactive=True)
+                    sample_msg = f" + {sample_display}" if sample_display else ""
+                    return str(temp_path), f"Speaker: {speaker_name}{sample_msg}\nSeed: {seed} | VibeVoice Trained\nClick 'Save to Output' to keep this result.", metadata_out, gr.update(interactive=True)
                 else:
                     output_format = user_config.get("output_format", "wav")
                     output_path = save_result_to_output(temp_path, OUTPUT_DIR, output_format, metadata_out)
                     progress(1.0, desc="Done!")
                     if play_completion_beep:
                         play_completion_beep()
-                    return str(output_path), f"Audio saved: {output_path.name}\nSpeaker: {speaker_name} | Seed: {seed} | VibeVoice Trained", "", gr.update()
+                    sample_msg = f" + {sample_display}" if sample_display else ""
+                    return str(output_path), f"Audio saved: {output_path.name}\nSpeaker: {speaker_name}{sample_msg} | Seed: {seed} | VibeVoice Trained", "", gr.update()
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -821,6 +886,9 @@ class VoicePresetsTool(Tool):
                                      vv_trained_cfg_scale=3.0, vv_trained_num_steps=20,
                                      vv_trained_do_sample=False, vv_trained_rep_pen=1.1,
                                      vv_trained_temperature=1.0, vv_trained_top_k=50, vv_trained_top_p=1.0,
+                                     vv_trained_use_sample=False,
+                                     vv_trained_sample=None,
+                                     vv_trained_lora_scale=1.0,
                                      vv_streaming_voice=None,
                                      vv_streaming_cfg_scale=1.5, vv_streaming_ddpm_steps=20,
                                      progress=gr.Progress()):
@@ -849,6 +917,7 @@ class VoicePresetsTool(Tool):
                     text, lang, vv_trained_model, seed,
                     vv_trained_do_sample, vv_trained_temperature, vv_trained_top_k, vv_trained_top_p,
                     vv_trained_rep_pen, vv_trained_cfg_scale, vv_trained_num_steps,
+                    vv_trained_use_sample, vv_trained_sample, vv_trained_lora_scale,
                     progress
                 )
 
@@ -896,9 +965,9 @@ class VoicePresetsTool(Tool):
                 outputs=[]
             )
 
-        # Auto-refresh trained models when tab is selected
+        # Auto-refresh trained models and samples when tab is selected
         def refresh_all_model_dropdowns():
-            """Refresh both Qwen and VibeVoice trained model dropdowns on tab select."""
+            """Refresh model dropdowns and voice sample dropdown on tab select."""
             qwen_models = get_trained_models()
             if qwen_models:
                 qwen_choices = ["(Select Model)"] + [m['display_name'] for m in qwen_models]
@@ -911,14 +980,30 @@ class VoicePresetsTool(Tool):
             else:
                 vv_choices = ["(No trained VibeVoice models found)"]
 
+            # Refresh voice sample list for FileLister
+            sample_list = get_sample_choices()
+
             return (
                 gr.update(choices=qwen_choices),
                 gr.update(choices=vv_choices),
+                sample_list,
             )
 
         components['voice_presets_tab'].select(
             refresh_all_model_dropdowns,
-            outputs=[components['trained_model_dropdown'], components['vv_trained_model_dropdown']]
+            outputs=[components['trained_model_dropdown'], components['vv_trained_model_dropdown'], components['vv_trained_sample_lister']]
+        ).then(
+            toggle_voice_type,
+            inputs=[components['voice_type_radio']],
+            outputs=[
+                components['speaker_section'], components['trained_section'],
+                components['vv_trained_section'], components['vv_streaming_section'],
+                components['custom_instruct_input'],
+                components['qwen_custom_advanced'],
+                components['qwen_trained_advanced'],
+                components['vv_trained_advanced'],
+                components['vv_streaming_advanced'],
+            ]
         )
 
         # Restore saved params when accordion is opened
@@ -932,6 +1017,13 @@ class VoicePresetsTool(Tool):
             lambda enabled: gr.update(visible=enabled),
             inputs=[components['icl_enabled']],
             outputs=[components['icl_sample_section']]
+        )
+
+        # VV Trained sample toggle: show/hide sample section
+        components['vv_trained_use_sample'].change(
+            lambda enabled: gr.update(visible=enabled),
+            inputs=[components['vv_trained_use_sample']],
+            outputs=[components['vv_trained_sample_section']]
         )
 
         def get_selected_icl_filename(lister_value):
@@ -982,6 +1074,33 @@ class VoicePresetsTool(Tool):
         components['icl_voice_lister'].double_click(
             fn=None,
             js="() => { setTimeout(() => { const btn = document.querySelector('#icl-audio-preview .play-pause-button'); if (btn) btn.click(); }, 150); }"
+        )
+
+        # VV Trained sample preview on selection
+        def load_vv_trained_audio_preview(lister_value):
+            """Load VV trained audio preview from FileLister selection."""
+            if not lister_value:
+                return None
+            selected = lister_value.get("selected", [])
+            if len(selected) != 1:
+                return None
+            from modules.core_components.tools import strip_sample_extension, load_sample_details
+            bare_name = strip_sample_extension(selected[0])
+            wav_path, _, _ = load_sample_details(bare_name)
+            if wav_path:
+                return str(wav_path)
+            return None
+
+        components['vv_trained_sample_lister'].change(
+            load_vv_trained_audio_preview,
+            inputs=[components['vv_trained_sample_lister']],
+            outputs=[components['vv_trained_audio_preview']]
+        )
+
+        # Double-click = play VV trained sample preview
+        components['vv_trained_sample_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#vv-trained-audio-preview .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
         # Apply emotion preset to Trained Model parameters
@@ -1066,6 +1185,9 @@ class VoicePresetsTool(Tool):
                 components['vv_trained_cfg_scale'], components['vv_trained_num_steps'],
                 components['vv_trained_do_sample'], components['vv_trained_repetition_penalty'],
                 components['vv_trained_temperature'], components['vv_trained_top_k'], components['vv_trained_top_p'],
+                components['vv_trained_use_sample'],
+                components['vv_trained_sample_lister'],
+                components['vv_trained_lora_scale'],
                 # VibeVoice Streaming
                 components['vv_streaming_voice_dropdown'],
                 components['vv_streaming_cfg_scale'], components['vv_streaming_ddpm_steps'],

@@ -69,6 +69,11 @@ class TTSManager:
         # VibeVoice Trained (LoRA) model cache
         self._trained_vibevoice_model = None
         self._trained_vibevoice_path = None
+        self._trained_vv_base_connectors = None    # original connector state dicts
+        self._trained_vv_lora_connectors = None    # trained connector state dicts
+        self._trained_vv_base_pred_head = None     # original prediction head state dict (CPU)
+        self._trained_vv_lora_pred_head = None     # trained prediction head state dict (CPU)
+        self._trained_vv_pred_head_is_peft = False  # True if diffusion head loaded as LoRA
 
         # Chatterbox models
         self._chatterbox_tts_model = None
@@ -547,6 +552,11 @@ class TTSManager:
             del self._trained_vibevoice_model
             self._trained_vibevoice_model = None
             self._trained_vibevoice_path = None
+            self._trained_vv_base_connectors = None
+            self._trained_vv_lora_connectors = None
+            self._trained_vv_base_pred_head = None
+            self._trained_vv_lora_pred_head = None
+            self._trained_vv_pred_head_is_peft = False
             freed.append("VibeVoice Trained")
 
         if freed:
@@ -990,17 +1000,94 @@ class TTSManager:
 
         return audio_data, sr
 
+    def _apply_lora_scale(self, model, scale):
+        """Apply a scaling factor to all trained components.
+
+        Handles three kinds of trained weights:
+        1. PEFT LoRA layers (language model, optionally diffusion head):
+           Uses set_scale to multiply the adapter contribution.
+        2. Full-weight diffusion head (diffusion_head_full.bin):
+           Linearly interpolates between original and trained state dicts.
+        3. Connectors (acoustic_connector, semantic_connector):
+           Linearly interpolates between original and trained state dicts.
+
+        At scale 0.0 the model behaves as the unmodified base model.
+        At scale 1.0 all trained weights are fully applied.
+
+        Args:
+            model: The VibeVoice model with trained weights loaded
+            scale: Float multiplier (0.0 = base model, 1.0 = full trained)
+        """
+        # --- 1. PEFT LoRA layers (language model + optionally prediction head) ---
+        try:
+            from peft.tuners.lora.layer import LoraLayer
+        except ImportError:
+            LoraLayer = None
+
+        lora_count = 0
+        if LoraLayer is not None:
+            for component in [model.model.language_model, model.model.prediction_head]:
+                if component is None:
+                    continue
+                for module in component.modules():
+                    if isinstance(module, LoraLayer):
+                        for adapter_name in module.scaling:
+                            module.set_scale(adapter_name, scale)
+                        lora_count += 1
+
+        # --- 2. Full-weight diffusion head interpolation ---
+        base_pred = self._trained_vv_base_pred_head
+        lora_pred = self._trained_vv_lora_pred_head
+        if base_pred and lora_pred and not self._trained_vv_pred_head_is_peft:
+            device = next(model.model.prediction_head.parameters()).device
+            interpolated = {}
+            for key in base_pred:
+                if key in lora_pred:
+                    interpolated[key] = (
+                        base_pred[key] * (1.0 - scale) + lora_pred[key] * scale
+                    ).to(device)
+                else:
+                    interpolated[key] = base_pred[key].to(device)
+            model.model.prediction_head.load_state_dict(interpolated)
+
+        # --- 3. Connector interpolation ---
+        base_connectors = self._trained_vv_base_connectors
+        lora_connectors = self._trained_vv_lora_connectors
+        if base_connectors and lora_connectors:
+            for cname in base_connectors:
+                connector = getattr(model.model, cname, None)
+                if connector is None or cname not in lora_connectors:
+                    continue
+                base_sd = base_connectors[cname]
+                lora_sd = lora_connectors[cname]
+                interpolated = {}
+                for key in base_sd:
+                    if key in lora_sd:
+                        interpolated[key] = base_sd[key] * (1.0 - scale) + lora_sd[key] * scale
+                    else:
+                        interpolated[key] = base_sd[key]
+                connector.load_state_dict(interpolated)
+
+        print(f"LoRA scale applied: {scale:.2f} "
+              f"({lora_count} LoRA layers, "
+              f"pred_head={'interpolated' if (base_pred and lora_pred and not self._trained_vv_pred_head_is_peft) else 'peft' if self._trained_vv_pred_head_is_peft else 'unchanged'}, "
+              f"connectors={'interpolated' if (base_connectors and lora_connectors) else 'unchanged'})")
+
+
     def generate_with_trained_vibevoice(self, text, language, checkpoint_path,
                                         seed=-1, do_sample=False,
                                         temperature=1.0, top_k=50,
                                         top_p=1.0, repetition_penalty=1.0,
                                         cfg_scale=1.3, num_steps=10,
-                                        max_new_tokens=2048, user_config=None):
+                                        max_new_tokens=2048, user_config=None,
+                                        voice_sample_path=None,
+                                        lora_scale=1.0):
         """
         Generate audio using a trained VibeVoice LoRA checkpoint.
 
         Loads the base VibeVoice 1.5B model, applies LoRA adapters,
-        and generates speech without voice conditioning (voice is baked into LoRA).
+        and generates speech. Optionally uses a voice sample for additional
+        voice conditioning on top of the LoRA weights.
 
         Args:
             text: Text to generate
@@ -1016,6 +1103,8 @@ class TTSManager:
             num_steps: Number of DDPM denoising steps
             max_new_tokens: Maximum tokens to generate
             user_config: User configuration dict
+            voice_sample_path: Optional path to voice sample WAV for additional conditioning
+            lora_scale: LoRA adapter strength multiplier (0.0 = base model, 1.0 = full LoRA)
 
         Returns:
             Tuple: (audio_array, sample_rate)
@@ -1106,9 +1195,44 @@ class TTSManager:
             )
             model.set_ddpm_inference_steps(num_steps=int(num_steps))
 
+            # Snapshot original weights before LoRA replaces them.
+            # Connectors stay on-device (small), prediction head goes to CPU
+            # (can be 235 MB) to avoid doubling VRAM usage.
+            import copy
+            self._trained_vv_base_connectors = {}
+            for cname in ('acoustic_connector', 'semantic_connector'):
+                connector = getattr(model.model, cname, None)
+                if connector is not None:
+                    self._trained_vv_base_connectors[cname] = copy.deepcopy(connector.state_dict())
+
+            # Snapshot prediction head on CPU before LoRA loading
+            self._trained_vv_base_pred_head = {
+                k: v.clone().cpu() for k, v in model.model.prediction_head.state_dict().items()
+            }
+
             # Apply LoRA adapters (supports both model/lora/files and model/files layouts)
             report = load_lora_assets(model, checkpoint_str)
             print(f"LoRA loaded: {report}")
+
+            # Snapshot trained connector weights so we can interpolate later
+            self._trained_vv_lora_connectors = {}
+            for cname in ('acoustic_connector', 'semantic_connector'):
+                connector = getattr(model.model, cname, None)
+                if connector is not None:
+                    self._trained_vv_lora_connectors[cname] = copy.deepcopy(connector.state_dict())
+
+            # Diffusion head: if loaded as full weights (not LoRA), snapshot
+            # the trained weights for interpolation.
+            self._trained_vv_pred_head_is_peft = report.diffusion_head_lora
+            if report.diffusion_head_full:
+                self._trained_vv_lora_pred_head = {
+                    k: v.clone().cpu()
+                    for k, v in model.model.prediction_head.state_dict().items()
+                }
+                print(f"Prediction head full weights cached for interpolation "
+                      f"({len(self._trained_vv_lora_pred_head)} tensors)")
+            else:
+                self._trained_vv_lora_pred_head = None
 
             # Cache
             self._trained_vibevoice_model = model
@@ -1144,42 +1268,59 @@ class TTSManager:
                 else:
                     processor = VibeVoiceProcessor.from_pretrained(fallback_id)
 
-        # Generate without voice conditioning (LoRA has voice baked in)
-        gen_kwargs = {
-            "do_sample": do_sample,
-            "temperature": float(temperature),
-            "cfg_scale": float(cfg_scale),
-            "max_new_tokens": int(max_new_tokens),
-        }
-        if top_k > 0:
-            gen_kwargs["top_k"] = int(top_k)
-        if top_p < 1.0:
-            gen_kwargs["top_p"] = float(top_p)
-        if repetition_penalty != 1.0:
-            gen_kwargs["repetition_penalty"] = float(repetition_penalty)
+        # Apply LoRA scaling if not default (1.0)
+        if lora_scale != 1.0:
+            self._apply_lora_scale(model, float(lora_scale))
+            print(f"LoRA strength: {lora_scale:.2f}")
+        else:
+            # Reset to default scale in case it was changed previously
+            self._apply_lora_scale(model, 1.0)
+
+        # Build generation config (same pattern as voice clone)
+        gen_config = {'do_sample': do_sample}
+        if do_sample:
+            gen_config['temperature'] = float(temperature)
+            if top_k > 0:
+                gen_config['top_k'] = int(top_k)
+            if top_p < 1.0:
+                gen_config['top_p'] = float(top_p)
+            if repetition_penalty != 1.0:
+                gen_config['repetition_penalty'] = float(repetition_penalty)
 
         # Format input text with Speaker prefix required by processor
+        # Speaker 0 = no voice conditioning, Speaker 1 = with voice sample
         formatted_text = f"[{language}] {text.strip()}" if language and language != "Auto" else text.strip()
-        formatted_text = f"Speaker 0: {formatted_text}"
+        use_voice_sample = voice_sample_path is not None
+        speaker_id = "1" if use_voice_sample else "0"
+        formatted_text = f"Speaker {speaker_id}: {formatted_text}"
+
+        if use_voice_sample:
+            print(f"Using voice sample for conditioning: {Path(voice_sample_path).name}")
 
         with torch.no_grad():
-            proc_output = processor(
+            inputs = processor(
                 text=[formatted_text],
-                voice_samples=None,
+                voice_samples=[[voice_sample_path]] if use_voice_sample else None,
+                padding=True,
                 return_tensors="pt",
+                return_attention_mask=True,
             )
 
             # Move to device
-            for k, v in proc_output.items():
+            for k, v in inputs.items():
                 if isinstance(v, torch.Tensor):
-                    proc_output[k] = v.to(device)
+                    inputs[k] = v.to(device)
 
+            # is_prefill=True enables speech prefill (voice conditioning)
+            # Must be True when voice sample is provided, False otherwise
             wavs = model.generate(
-                input_ids=proc_output["input_ids"],
-                attention_mask=proc_output["attention_mask"],
+                **inputs,
+                max_new_tokens=None,
+                cfg_scale=float(cfg_scale),
                 tokenizer=processor.tokenizer,
-                is_prefill=False,
-                **gen_kwargs
+                generation_config=gen_config,
+                verbose=False,
+                is_prefill=use_voice_sample,
             )
 
         # VibeVoiceGenerationOutput: .sequences (token IDs), .speech_outputs (list of audio tensors)
