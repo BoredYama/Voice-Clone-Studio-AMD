@@ -1,8 +1,8 @@
 # Voice Clone Studio
 
-Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and Whisper for automatic transcription. As well as Llama.cpp and [Ollama](https://ollama.com/) for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
+A multi-model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion, voice training and sound effects. Basically, One app, many engines, to tinker with all of them without juggling separate repos or setups.  Powered by [VibeVoice](https://github.com/microsoft/VibeVoice), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR), [VibeVoice-ASR](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr.md) and [Whisper](https://github.com/openai/whisper) for automatic transcription. As well as [llama.cpp](https://github.com/ggerganov/llama.cpp) and [Ollama](https://ollama.com/) for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
 
-![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.9-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
+<img src="https://img.shields.io/badge/VibeVoice-TTS-green" alt="VibeVoice TTS"> <img src="https://img.shields.io/badge/VibeVoice-ASR-green" alt="VibeVoice ASR"> <img src="https://img.shields.io/badge/Qwen3-TTS-blue" alt="Qwen3-TTS"> <img src="https://img.shields.io/badge/Qwen3-ASR-blue" alt="Qwen3-ASR"> <img src="https://img.shields.io/badge/LuxTTS-TTS-orange" alt="LuxTTS"> <img src="https://img.shields.io/badge/Chatterbox-TTS-red" alt="Chatterbox-TTS"> <img src="https://img.shields.io/badge/Whisper-yellow" alt="Whisper"> <img src="https://img.shields.io/badge/MMAudio-SFX-purple" alt="MMAudio">
 
 <a href="docs/preview.png"><img src="docs/preview.png" alt="Voice Clone Studio Preview" width="600"></a>
 
@@ -76,10 +76,25 @@ Change the voice in any audio using Chatterbox speech-to-speech voice conversion
 - **Multiple models** - TTS (English), Multilingual (23 languages)
 
 ### Voice Presets
-Generate with premium pre-built voices with optional style instructions using Qwen3-TTS Custom Model:
+Generate with premium pre-built voices, trained models, and streaming speakers:
 
-- Style instructions supported (emotion, tone, speed)
+**VibeVoice Trained:**
+- Generate with your own VibeVoice LoRA-trained voices
+- Optional voice sample conditioning with adjustable LoRA strength
+- Advanced params: CFG scale, DDPM steps, temperature, top_k, top_p, repetition penalty
+
+**Qwen Speakers:**
+- 9 premium Qwen3-TTS speakers with style instructions (emotion, tone, speed)
 - Each speaker works best in native language but supports all
+
+**VibeVoice Speakers:**
+- 7 built-in VibeVoice Streaming 0.5B preset voices (Carter, Davis, Emma, Frank, Grace, Mike, Samuel)
+- Lightweight 0.5B model with fast generation
+- Auto-downloads voice prompt files from GitHub, caches locally
+
+**Qwen Trained:**
+- Generate with Qwen3-TTS finetuned models
+- ICL (In-Context Learning) mode for enhanced voice cloning
 
 ### Voice Design
 Create voices from natural language descriptions - no audio needed, using Qwen3-TTS Voice Design Model:
@@ -90,12 +105,20 @@ Create voices from natural language descriptions - no audio needed, using Qwen3-
 ### Train Custom Voices
 Fine-tune your own custom voice models with your training data:
 
+- **Dual Engine** - Train with Qwen3-TTS or VibeVoice LoRA finetuning
 - **Dataset Management** - Organize training samples in the `datasets/` folder
 - **Audio Preparation** - Auto-converts to 24kHz 16-bit mono format
 - **Training Pipeline** - Complete 3-step workflow (validation → extract codes → train)
 - **Epoch Selection** - Compare different training checkpoints
 - **Live Progress** - Real-time training logs and loss monitoring
+- **Stop Training** - Terminate training mid-run with clean status
 - **Voice Presets Integration** - Use trained models alongside premium speakers
+
+**VibeVoice Training Features:**
+- LoRA finetuning via subprocess with full parameter UI
+- Configurable: batch size, learning rate, epochs, save interval, DDPM batch multiplier, diffusion/CE loss weights, voice prompt drop, gradient accumulation, warmup steps
+- Train diffusion head toggle, EMA on/off with auto-decay calculation
+- Verbose output filtering — clean per-epoch summaries instead of raw logs
 
 **Requirements:**
 - CUDA GPU required
@@ -168,7 +191,7 @@ Centralized application configuration:
 
 ### Prerequisites
 
-- Python 3.10-3.12 (3.12 recommended, 3.13+ is not supported due to dependency conflicts)
+- Python 3.10-3.12 (3.11 recommended — DeepFilterNet lacks wheels for 3.12; 3.13+ is not supported due to dependency conflicts)
 - **Windows/Linux:** CUDA-compatible GPU (recommended: 8GB+ VRAM)
 - **macOS:** Apple Silicon (M1/M2/M3/M4) for MPS acceleration, or Intel Mac (CPU-only)
 - **SOX**  (Sound eXchange) - Required for audio processing

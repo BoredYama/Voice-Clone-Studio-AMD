@@ -84,11 +84,9 @@ class ConversationTool(Tool):
         initial_conv_model = _user_config.get("conv_model_type", "VibeVoice")
         if initial_conv_model not in visible_choices:
             initial_conv_model = visible_choices[0]
-        is_vibevoice = initial_conv_model == "VibeVoice"
-        is_qwen_base = initial_conv_model == "Qwen Base"
-        is_qwen_custom = initial_conv_model == "Qwen Speakers"
-        is_luxtts = initial_conv_model == "LuxTTS"
-        is_chatterbox = initial_conv_model == "Chatterbox"
+
+        # All sections start visible=True so Gradio renders their DOM.
+        # toggle_conv_ui on tab.select sets the correct visibility.
 
         with gr.TabItem("Conversation", id="tab_conversation") as conv_tab:
             components['conv_tab'] = conv_tab
@@ -115,7 +113,7 @@ class ConversationTool(Tool):
                     components['conversation_script'] = gr.Textbox(
                         label="Script:",
                         placeholder=dedent("""\
-                            Use [N]: format for speaker labels (1-4 for VibeVoice, 1-8 for Base/LuxTTS, 1-9 for CustomVoice).
+                            Use [N]: format for speaker labels (up to 4 speakers).
                             Qwen also supports (style) for emotions:
 
                             [1]: (cheerful) Hey, how's it going?
@@ -123,40 +121,51 @@ class ConversationTool(Tool):
                             [1]: That's wonderful to hear.
                             [3]: (curious) Mind if I join this conversation?
 
-                            VibeVoice: Natural long-form generation.
-                            Base: Your custom voice clips with advanced pause control, with hacked Style control.
-                            CustomVoice: Qwen Preset speakers with style control and Pause Controls.
-                            LuxTTS: Voice cloning with custom samples, sequential generation."""),
+                            Qwen Speakers: Preset voices with style control and Pause Controls.
+                            Qwen Base: Your custom voice clips with advanced pause control.
+                            VibeVoice: Natural long-form generation with custom voices.
+                            LuxTTS / Chatterbox: Voice cloning with custom samples."""),
                         lines=18
                     )
 
-                    # Qwen speaker mapping
-                    speaker_guide = dedent("""\
-                        **Qwen Speaker Numbers → Preset Voices:**
+                    # Qwen Speakers voice assignment (preset voices from CUSTOM_VOICE_SPEAKERS)
+                    components['qwen_speakers_voices_section'] = gr.Column(visible=True)
+                    with components['qwen_speakers_voices_section']:
+                        gr.Markdown("### Assign Preset Voices (Up to 4 Speakers)")
 
-                        | # | Speaker | Voice | Language |   | # | Speaker | Voice | Language |
-                        |---|---------|-------|----------|---|---|---------|-------|----------|
-                        | 1 | Vivian | Bright young female | 🇨🇳 Chinese |   | 6 | Ryan | Dynamic male | 🇺🇸 English |
-                        | 2 | Serena | Warm gentle female | 🇨🇳 Chinese |   | 7 | Aiden | Sunny American male | 🇺🇸 English |
-                        | 3 | Uncle_Fu | Seasoned mellow male | 🇨🇳 Chinese |   | 8 | Ono_Anna | Playful female | 🇯🇵 Japanese |
-                        | 4 | Dylan | Youthful Beijing male | 🇨🇳 Chinese |   | 9 | Sohee | Warm female | 🇰🇷 Korean |
-                        | 5 | Eric | Lively Chengdu male | 🇨🇳 Chinese |  |  |  |  |  |
+                        qwen_defaults = CUSTOM_VOICE_SPEAKERS[:4] if CUSTOM_VOICE_SPEAKERS else []
+                        with gr.Row():
+                            with gr.Column():
+                                components['qwen_speaker_voice_1'] = gr.Dropdown(
+                                    choices=CUSTOM_VOICE_SPEAKERS,
+                                    value=qwen_defaults[0] if len(qwen_defaults) > 0 else None,
+                                    label="[1] Voice",
+                                )
+                            with gr.Column():
+                                components['qwen_speaker_voice_2'] = gr.Dropdown(
+                                    choices=CUSTOM_VOICE_SPEAKERS,
+                                    value=qwen_defaults[1] if len(qwen_defaults) > 1 else None,
+                                    label="[2] Voice",
+                                )
 
-                        *Each speaker works best in their native language.*
-                        """)
-
-                    components['qwen_speaker_table'] = gr.HTML(
-                        value=format_help_html(speaker_guide),
-                        container=True,
-                        padding=True,
-                        visible=is_qwen_custom
-                    )
+                        with gr.Row():
+                            with gr.Column():
+                                components['qwen_speaker_voice_3'] = gr.Dropdown(
+                                    choices=CUSTOM_VOICE_SPEAKERS,
+                                    value=qwen_defaults[2] if len(qwen_defaults) > 2 else None,
+                                    label="[3] Voice",
+                                )
+                            with gr.Column():
+                                components['qwen_speaker_voice_4'] = gr.Dropdown(
+                                    choices=CUSTOM_VOICE_SPEAKERS,
+                                    value=qwen_defaults[3] if len(qwen_defaults) > 3 else None,
+                                    label="[4] Voice",
+                                )
 
                     # Shared voice sample selectors (used by Qwen Base, LuxTTS, Chatterbox, VibeVoice)
-                    uses_samples = is_qwen_base or is_luxtts or is_chatterbox or is_vibevoice
-                    components['shared_voices_section'] = gr.Column(visible=uses_samples)
+                    components['shared_voices_section'] = gr.Column(visible=True)
                     with components['shared_voices_section']:
-                        gr.Markdown("### Voice Samples (Up to 8 Speakers)")
+                        gr.Markdown("### Voice Samples (Up to 4 Speakers)")
 
                         with gr.Row():
                             with gr.Column():
@@ -190,47 +199,14 @@ class ConversationTool(Tool):
                                     info="Select from your prepared samples"
                                 )
 
-                        # Rows 5-8 hidden for VibeVoice (only supports 4 speakers)
-                        components['conv_voices_row_5_6'] = gr.Row(visible=not is_vibevoice)
-                        with components['conv_voices_row_5_6']:
-                            with gr.Column():
-                                components['conv_voice_5'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[5] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['conv_voice_6'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[6] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
 
-                        components['conv_voices_row_7_8'] = gr.Row(visible=not is_vibevoice)
-                        with components['conv_voices_row_7_8']:
-                            with gr.Column():
-                                components['conv_voice_7'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[7] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['conv_voice_8'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[8] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
 
                 # Right - Settings and output
                 with gr.Column(scale=1):
                     gr.Markdown("### Settings")
 
                     # Qwen Speakers settings
-                    components['qwen_custom_settings'] = gr.Column(visible=is_qwen_custom)
+                    components['qwen_custom_settings'] = gr.Column(visible=True)
                     with components['qwen_custom_settings']:
                         components['conv_model_size'] = gr.Dropdown(
                             choices=MODEL_SIZES_CUSTOM,
@@ -240,7 +216,7 @@ class ConversationTool(Tool):
                         )
 
                     # Qwen Base settings
-                    components['qwen_base_settings'] = gr.Column(visible=is_qwen_base)
+                    components['qwen_base_settings'] = gr.Column(visible=True)
                     with components['qwen_base_settings']:
                         components['conv_base_model_size'] = gr.Dropdown(
                             choices=MODEL_SIZES_BASE,
@@ -249,18 +225,10 @@ class ConversationTool(Tool):
                             info="Small = Faster, Large = Better Quality"
                         )
 
-                    # Shared Language and Seed
-                    is_qwen_initial = is_qwen_base or is_qwen_custom
+                    # Shared Language and Seed — always start with full list, toggle_conv_ui adjusts
                     from modules.core_components.constants import CHATTERBOX_LANGUAGES
-                    if is_qwen_initial:
-                        initial_lang_choices = LANGUAGES
-                        initial_lang_value = _user_config.get("language", "Auto")
-                    elif is_chatterbox:
-                        initial_lang_choices = CHATTERBOX_LANGUAGES
-                        initial_lang_value = "English"
-                    else:
-                        initial_lang_choices = ["Auto"]
-                        initial_lang_value = "Auto"
+                    initial_lang_choices = LANGUAGES
+                    initial_lang_value = _user_config.get("language", "Auto")
                     with gr.Column():
                         with gr.Row():
                             components['conv_language'] = gr.Dropdown(
@@ -278,7 +246,7 @@ class ConversationTool(Tool):
                             )
 
                     # Shared Pause Controls
-                    components['qwen_pause_controls'] = gr.Accordion("Pause Controls", open=False, visible=(is_qwen_custom or is_qwen_base))
+                    components['qwen_pause_controls'] = gr.Accordion("Pause Controls", open=False, visible=True)
                     with components['qwen_pause_controls']:
                         with gr.Column():
                             components['conv_pause_linebreak'] = gr.Slider(
@@ -327,7 +295,7 @@ class ConversationTool(Tool):
                                 )
 
                     # Chatterbox-specific settings
-                    components['cb_settings'] = gr.Column(visible=is_chatterbox)
+                    components['cb_settings'] = gr.Column(visible=True)
                     with components['cb_settings']:
                         # Pause between lines
                         components['cb_pause_linebreak'] = gr.Slider(
@@ -352,7 +320,7 @@ class ConversationTool(Tool):
                         components['cb_conv_accordion'] = cb_conv_params.get('accordion')
 
                     # LuxTTS-specific settings
-                    components['luxtts_settings'] = gr.Column(visible=is_luxtts)
+                    components['luxtts_settings'] = gr.Column(visible=True)
                     with components['luxtts_settings']:
                         # Pause between lines
                         components['luxtts_pause_linebreak'] = gr.Slider(
@@ -377,15 +345,17 @@ class ConversationTool(Tool):
                         components['lux_conv_return_smooth'] = lux_conv_params['return_smooth']
                         components['lux_conv_accordion'] = lux_conv_params.get('accordion')
 
-                    # VibeVoice-specific settings
-                    components['vibevoice_settings'] = gr.Column(visible=is_vibevoice)
+                    # VibeVoice settings
+                    components['vibevoice_settings'] = gr.Column(visible=True)
                     with components['vibevoice_settings']:
-                        components['longform_model_size'] = gr.Dropdown(
-                            choices=MODEL_SIZES_VIBEVOICE,
-                            value=_user_config.get("vibevoice_model_size", "Large"),
-                            label="Model Size",
-                            info="Small = Faster, Large = Better Quality"
-                        )
+                        components['vv_model_size_row'] = gr.Row(visible=True)
+                        with components['vv_model_size_row']:
+                            components['longform_model_size'] = gr.Dropdown(
+                                choices=MODEL_SIZES_VIBEVOICE,
+                                value=_user_config.get("vibevoice_model_size", "Large"),
+                                label="Model Size",
+                                info="Small = Faster, Large = Better Quality"
+                            )
 
                         # VibeVoice Advanced Parameters
                         vv_conv_params = create_vibevoice_advanced_params(
@@ -403,7 +373,7 @@ class ConversationTool(Tool):
                         components['vv_conv_accordion'] = vv_conv_params.get('accordion')
 
                     # Qwen Custom Voice Advanced Parameters
-                    components['qwen_custom_conv_advanced'] = gr.Column(visible=is_qwen_custom)
+                    components['qwen_custom_conv_advanced'] = gr.Column(visible=True)
                     with components['qwen_custom_conv_advanced']:
                         qwen_custom_conv_params = create_qwen_advanced_params(
                             include_emotion=False,
@@ -418,7 +388,7 @@ class ConversationTool(Tool):
                         components['qwen_custom_conv_accordion'] = qwen_custom_conv_params.get('accordion')
 
                     # Qwen Base Advanced Parameters
-                    components['qwen_base_conv_advanced'] = gr.Column(visible=is_qwen_base)
+                    components['qwen_base_conv_advanced'] = gr.Column(visible=True)
                     with components['qwen_base_conv_advanced']:
                         # Emotion intensity slider (Base only)
                         components['conv_emotion_intensity_row'] = gr.Row()
@@ -463,7 +433,7 @@ class ConversationTool(Tool):
                     qwen_custom_tips_text = dedent("""\
                     **Qwen Speakers Tips:**
                     - Fast generation with preset voices
-                    - Up to 9 different speakers
+                    - Up to 4 different speakers
                     - Tip: Use `[break=1.5]` inline for custom pauses
                     - Each voice optimized for their native language
                     - Style instructions: (cheerful), (sad), (excited), etc.
@@ -472,7 +442,7 @@ class ConversationTool(Tool):
                     qwen_base_tips_text = dedent("""\
                     **Qwen Base Tips:**
                     - Use your own custom voice samples
-                    - Up to 8 different speakers
+                    - Up to 4 different speakers
                     - Tip: Use `[break=1.5]` inline for custom pauses
                     - Advanced pause control (periods, commas, questions, hyphens)
                     - Prepare 3-10 second voice samples in samples/ folder
@@ -489,7 +459,7 @@ class ConversationTool(Tool):
 
                     luxtts_tips_text = dedent("""\
                     **LuxTTS Tips:**
-                    - Up to 8 speakers with custom voice samples
+                    - Up to 4 speakers with custom voice samples
                     - Sequential generation: each line generated individually then stitched
                     - Voice prompts are cached per speaker for fast subsequent lines
                     - 48kHz output for high quality audio
@@ -501,33 +471,33 @@ class ConversationTool(Tool):
                         value=format_help_html(qwen_custom_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_qwen_custom
+                        visible=True
                     )
 
                     components['qwen_base_tips'] = gr.HTML(
                         value=format_help_html(qwen_base_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_qwen_base
+                        visible=True
                     )
 
                     components['vibevoice_tips'] = gr.HTML(
                         value=format_help_html(vibevoice_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_vibevoice
+                        visible=True
                     )
 
                     components['luxtts_tips'] = gr.HTML(
                         value=format_help_html(luxtts_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_luxtts
+                        visible=True
                     )
 
                     chatterbox_tips_text = dedent("""\
                     **Chatterbox Tips:**
-                    - Up to 8 speakers with custom voice samples
+                    - Up to 4 speakers with custom voice samples
                     - English uses fast default TTS model
                     - Other languages use Multilingual model (23 languages)
                     - Sequential generation: each line generated then stitched
@@ -539,7 +509,7 @@ class ConversationTool(Tool):
                         value=format_help_html(chatterbox_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_chatterbox
+                        visible=True
                     )
 
             return components
@@ -636,14 +606,13 @@ class ConversationTool(Tool):
                     play_completion_beep()
                 return str(output_path), status_msg, "", gr.update()
 
-        def prepare_voice_samples_dict(v1, v2=None, v3=None, v4=None, v5=None, v6=None, v7=None, v8=None):
+        def prepare_voice_samples_dict(v1, v2=None, v3=None, v4=None):
             """Prepare voice samples dictionary for generation."""
             from modules.core_components.tools import strip_sample_extension
             samples = {}
             available_samples = get_available_samples()
 
-            voice_inputs = [("Speaker1", v1), ("Speaker2", v2), ("Speaker3", v3), ("Speaker4", v4),
-                            ("Speaker5", v5), ("Speaker6", v6), ("Speaker7", v7), ("Speaker8", v8)]
+            voice_inputs = [("Speaker1", v1), ("Speaker2", v2), ("Speaker3", v3), ("Speaker4", v4)]
 
             for speaker_num, sample_name in voice_inputs:
                 if sample_name:
@@ -700,7 +669,8 @@ class ConversationTool(Tool):
             combined_instruct = ', '.join(instructions) if instructions else ''
             return clean_text, combined_instruct
 
-        def generate_conversation_handler(conversation_data, pause_linebreak, pause_period, pause_comma,
+        def generate_conversation_handler(conversation_data, qwen_voice_1, qwen_voice_2, qwen_voice_3, qwen_voice_4,
+                                          pause_linebreak, pause_period, pause_comma,
                                           pause_question, pause_hyphen, language, seed, model_size,
                                           do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
                                           progress=gr.Progress()):
@@ -709,6 +679,16 @@ class ConversationTool(Tool):
                 return None, "❌ Please enter conversation lines.", "", gr.update()
 
             conversation_data = preprocess_conversation_script(conversation_data)
+
+            # Build speaker mapping from dropdown selections
+            voice_inputs = [qwen_voice_1, qwen_voice_2, qwen_voice_3, qwen_voice_4]
+            speaker_voices = {}
+            for i, voice_name in enumerate(voice_inputs, 1):
+                if voice_name:
+                    speaker_voices[i] = voice_name
+
+            if not speaker_voices:
+                return None, "❌ Please assign at least one voice.", "", gr.update()
 
             try:
                 # Parse conversation lines
@@ -725,13 +705,11 @@ class ConversationTool(Tool):
 
                         if bracket_content.isdigit():
                             speaker_num = int(bracket_content)
-                            if 1 <= speaker_num <= len(CUSTOM_VOICE_SPEAKERS):
-                                speaker = CUSTOM_VOICE_SPEAKERS[speaker_num - 1]
-                                if text:
-                                    lines.append((speaker, text))
+                            if speaker_num in speaker_voices and text:
+                                lines.append((speaker_voices[speaker_num], text))
 
                 if not lines:
-                    return None, "❌ No valid conversation lines found. Use format: [N]: Text", "", gr.update()
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-4)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -878,14 +856,14 @@ class ConversationTool(Tool):
 
                         if bracket_content.isdigit():
                             speaker_num = int(bracket_content)
-                            if 1 <= speaker_num <= 8:
+                            if 1 <= speaker_num <= 4:
                                 speaker_key = f"Speaker{speaker_num}"
                                 if speaker_key in voice_samples_dict and text:
                                     sample_data = voice_samples_dict[speaker_key]
                                     lines.append((speaker_key, sample_data["wav_path"], sample_data["ref_text"], text))
 
                 if not lines:
-                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)", "", gr.update()
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-4)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -1178,6 +1156,8 @@ class ConversationTool(Tool):
                             if torch.is_tensor(v):
                                 chunk_inputs[k] = v.to(device)
 
+                        _chunk_start = 0.5 + (0.4 * idx / len(chunks))
+                        _chunk_end = 0.5 + (0.4 * (idx + 1) / len(chunks))
                         outputs = model.generate(
                             **chunk_inputs,
                             max_new_tokens=None,
@@ -1185,6 +1165,9 @@ class ConversationTool(Tool):
                             tokenizer=processor.tokenizer,
                             generation_config=gen_config,
                             verbose=False,
+                            progress_callback=progress,
+                            progress_start=_chunk_start,
+                            progress_end=_chunk_end,
                         )
 
                         if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -1208,6 +1191,9 @@ class ConversationTool(Tool):
                         tokenizer=processor.tokenizer,
                         generation_config=gen_config,
                         verbose=False,
+                        progress_callback=progress,
+                        progress_start=0.5,
+                        progress_end=0.9,
                     )
 
                     if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -1287,14 +1273,14 @@ class ConversationTool(Tool):
 
                         if bracket_content.isdigit():
                             speaker_num = int(bracket_content)
-                            if 1 <= speaker_num <= 8:
+                            if 1 <= speaker_num <= 4:
                                 speaker_key = f"Speaker{speaker_num}"
                                 if speaker_key in voice_samples_dict and text:
                                     sample_data = voice_samples_dict[speaker_key]
                                     lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text, sample_data.get("ref_text", "")))
 
                 if not lines:
-                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)", "", gr.update()
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-4)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -1423,14 +1409,14 @@ class ConversationTool(Tool):
 
                         if bracket_content.isdigit():
                             speaker_num = int(bracket_content)
-                            if 1 <= speaker_num <= 8:
+                            if 1 <= speaker_num <= 4:
                                 speaker_key = f"Speaker{speaker_num}"
                                 if speaker_key in voice_samples_dict and text:
                                     sample_data = voice_samples_dict[speaker_key]
                                     lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text))
 
                 if not lines:
-                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-8)", "", gr.update()
+                    return None, "❌ No valid conversation lines found. Use format: [N]: Text (N=1-4)", "", gr.update()
 
                 # Set seed
                 seed = int(seed) if seed is not None else -1
@@ -1545,8 +1531,9 @@ class ConversationTool(Tool):
         def unified_conversation_generate(
             model_type, script,
             # Shared voice samples (used by all sample-based engines)
-            sv1, sv2, sv3, sv4, sv5, sv6, sv7, sv8,
+            sv1, sv2, sv3, sv4,
             # Qwen Speakers params
+            qwen_speaker_1, qwen_speaker_2, qwen_speaker_3, qwen_speaker_4,
             qwen_custom_pause_linebreak, qwen_custom_pause_period, qwen_custom_pause_comma,
             qwen_custom_pause_question, qwen_custom_pause_hyphen, qwen_custom_model_size,
             # Qwen Base params
@@ -1576,11 +1563,12 @@ class ConversationTool(Tool):
             seed, progress=gr.Progress()
         ):
             """Route to appropriate generation function based on model type."""
-            voice_samples = prepare_voice_samples_dict(sv1, sv2, sv3, sv4, sv5, sv6, sv7, sv8)
+            voice_samples = prepare_voice_samples_dict(sv1, sv2, sv3, sv4)
 
             if model_type == "Qwen Speakers":
                 qwen_size = "1.7B" if qwen_custom_model_size == "Large" else "0.6B"
-                return generate_conversation_handler(script, qwen_custom_pause_linebreak, qwen_custom_pause_period,
+                return generate_conversation_handler(script, qwen_speaker_1, qwen_speaker_2, qwen_speaker_3, qwen_speaker_4,
+                                                     qwen_custom_pause_linebreak, qwen_custom_pause_period,
                                                      qwen_custom_pause_comma, qwen_custom_pause_question,
                                                      qwen_custom_pause_hyphen, qwen_lang, qwen_seed, qwen_size,
                                                      qwen_custom_do_sample, qwen_custom_temperature, qwen_custom_top_k, qwen_custom_top_p,
@@ -1604,7 +1592,7 @@ class ConversationTool(Tool):
                                                                 qwen_lang, seed,
                                                                 cb_exaggeration, cb_cfg_weight, cb_temperature,
                                                                 cb_repetition_penalty, cb_top_p, progress)
-            else:  # VibeVoice
+            elif model_type == "VibeVoice":
                 if vv_model_size == "Small":
                     vv_size = "1.5B"
                 elif vv_model_size == "Large (4-bit)":
@@ -1631,10 +1619,11 @@ class ConversationTool(Tool):
             unified_conversation_generate,
             inputs=[
                 components['conv_model_type'], components['conversation_script'],
-                # Shared voice samples
+                # Shared voice samples (4 speakers)
                 components['conv_voice_1'], components['conv_voice_2'], components['conv_voice_3'], components['conv_voice_4'],
-                components['conv_voice_5'], components['conv_voice_6'], components['conv_voice_7'], components['conv_voice_8'],
-                # Qwen Speakers
+                # Qwen Speakers (preset voice dropdowns)
+                components['qwen_speaker_voice_1'], components['qwen_speaker_voice_2'],
+                components['qwen_speaker_voice_3'], components['qwen_speaker_voice_4'],
                 components['conv_pause_linebreak'], components['conv_pause_period'], components['conv_pause_comma'],
                 components['conv_pause_question'], components['conv_pause_hyphen'], components['conv_model_size'],
                 # Qwen Base
@@ -1710,10 +1699,8 @@ class ConversationTool(Tool):
                 lang_update = gr.update(choices=["Auto"], value="Auto")
 
             return {
-                components['qwen_speaker_table']: gr.update(visible=is_qwen_custom),
+                components['qwen_speakers_voices_section']: gr.update(visible=is_qwen_custom),
                 components['shared_voices_section']: gr.update(visible=uses_samples),
-                components['conv_voices_row_5_6']: gr.update(visible=uses_samples and not is_vibevoice),
-                components['conv_voices_row_7_8']: gr.update(visible=uses_samples and not is_vibevoice),
                 components['qwen_custom_settings']: gr.update(visible=is_qwen_custom),
                 components['qwen_base_settings']: gr.update(visible=is_qwen_base),
                 components['qwen_pause_controls']: gr.update(visible=is_qwen),
@@ -1728,21 +1715,29 @@ class ConversationTool(Tool):
                 components['luxtts_tips']: gr.update(visible=is_luxtts),
                 components['cb_tips']: gr.update(visible=is_chatterbox),
                 components['conv_language']: lang_update,
+                components['vv_model_size_row']: gr.update(visible=is_vibevoice),
             }
+
+        # All sections start visible=True so Gradio renders their DOM.
+        # toggle_conv_ui on tab.select sets the correct visibility.
+        conv_section_outputs = [
+            components['qwen_speakers_voices_section'],
+            components['shared_voices_section'],
+            components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
+            components['qwen_custom_conv_advanced'], components['qwen_base_conv_advanced'],
+            components['luxtts_settings'],
+            components['vibevoice_settings'],
+            components['cb_settings'],
+            components['qwen_custom_tips'], components['qwen_base_tips'], components['vibevoice_tips'],
+            components['luxtts_tips'], components['cb_tips'],
+            components['conv_language'],
+            components['vv_model_size_row'],
+        ]
 
         components['conv_model_type'].change(
             toggle_conv_ui,
             inputs=[components['conv_model_type']],
-            outputs=[components['qwen_speaker_table'],
-                     components['shared_voices_section'], components['conv_voices_row_5_6'], components['conv_voices_row_7_8'],
-                     components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
-                     components['qwen_custom_conv_advanced'], components['qwen_base_conv_advanced'],
-                     components['luxtts_settings'],
-                     components['vibevoice_settings'],
-                     components['cb_settings'],
-                     components['qwen_custom_tips'], components['qwen_base_tips'], components['vibevoice_tips'],
-                     components['luxtts_tips'], components['cb_tips'],
-                     components['conv_language']]
+            outputs=conv_section_outputs
         )
 
         # Refresh voice samples handler
@@ -1750,17 +1745,19 @@ class ConversationTool(Tool):
             """Refresh all shared voice sample dropdowns."""
             updated_samples = get_sample_choices()
             update = gr.update(choices=updated_samples)
-            return [update] * 8
+            return [update] * 4
 
-        # Auto-refresh all voice sample dropdowns when tab is selected
+        # Auto-refresh all voice sample dropdowns when tab is selected, then set correct visibility
         components['conv_tab'].select(
             refresh_all_voice_samples,
             outputs=[
                 components['conv_voice_1'], components['conv_voice_2'],
                 components['conv_voice_3'], components['conv_voice_4'],
-                components['conv_voice_5'], components['conv_voice_6'],
-                components['conv_voice_7'], components['conv_voice_8'],
             ]
+        ).then(
+            toggle_conv_ui,
+            inputs=[components['conv_model_type']],
+            outputs=conv_section_outputs
         )
 
         # Restore saved params when accordion is opened
@@ -1849,6 +1846,15 @@ class ConversationTool(Tool):
                 _apply_conv_script,
                 inputs=[prompt_apply_trigger, components['conversation_script']],
                 outputs=[components['conversation_script']],
+            )
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_conv_ui,
+                inputs=[components['conv_model_type']],
+                outputs=conv_section_outputs
             )
 
 

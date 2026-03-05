@@ -35,8 +35,11 @@ LLM_MODELS = {
     "Qwen3-4B-Q8_0.gguf": {
         "repo": "Qwen/Qwen3-4B-GGUF",
     },
-    "Qwen3-8B-Q8_0.gguf": {
-        "repo": "Qwen/Qwen3-8B-GGUF",
+    "Qwen3.5-9B-UD-Q4_K_XL.gguf": {
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+    },
+    "Qwen3.5-9B-Q8_0.gguf": {
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
     },
 }
 
@@ -370,6 +373,7 @@ def _download_model(model_name, user_config, progress=None):
 
     try:
         from huggingface_hub import HfApi
+        print(f"[Prompt Manager] Downloading {model_name} from {repo_id}...")
         if progress:
             progress(0.0, desc=f"Downloading {model_name}...")
 
@@ -377,22 +381,35 @@ def _download_model(model_name, user_config, progress=None):
         repo_info = api.repo_info(repo_id=repo_id, files_metadata=True)
         file_metadata = next((f for f in repo_info.siblings if f.rfilename == model_name), None)
         if not file_metadata or file_metadata.size is None:
+            print(f"[Prompt Manager] Could not get file metadata for {model_name}")
             return None
 
         total_size = file_metadata.size
+        total_mb = total_size / (1024 * 1024)
+        print(f"[Prompt Manager] Model size: {total_mb:.0f} MB")
         download_url = f"https://huggingface.co/{repo_id}/resolve/main/{model_name}"
 
         downloaded = 0
+        last_logged_pct = -10
         with requests.get(download_url, stream=True) as r, open(str(local_path), "wb") as f:
             r.raise_for_status()
             for chunk in r.iter_content(chunk_size=65536):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if progress and total_size > 0:
+                    if total_size > 0:
                         pct = downloaded / total_size
-                        progress(pct, desc=f"Downloading {model_name}... {downloaded // (1024 * 1024)}MB / {total_size // (1024 * 1024)}MB")
+                        dl_mb = downloaded / (1024 * 1024)
+                        # Update UI progress
+                        if progress:
+                            progress(pct, desc=f"Downloading {model_name}... {dl_mb:.0f}MB / {total_mb:.0f}MB")
+                        # Log to console every 10%
+                        pct_int = int(pct * 100)
+                        if pct_int >= last_logged_pct + 10:
+                            last_logged_pct = pct_int
+                            print(f"[Prompt Manager] Download: {pct_int}% ({dl_mb:.0f}MB / {total_mb:.0f}MB)")
 
+        print(f"[Prompt Manager] Download complete: {local_path}")
         if progress:
             progress(1.0, desc="Download complete")
         return str(local_path)
@@ -441,10 +458,12 @@ def _start_server(model_name, user_config, progress=None):
         pass
 
     # Download if not local
-    if not _is_model_local(model_name, user_config):
+    needs_download = not _is_model_local(model_name, user_config)
+    if needs_download:
         if model_name in LLM_MODELS:
             if progress:
-                progress(0.1, desc=f"Downloading {model_name}...")
+                progress(0.05, desc=f"Downloading {model_name}...")
+            print(f"[Prompt Manager] Model not found locally, downloading {model_name}...")
             model_path = _download_model(model_name, user_config, progress)
             if not model_path:
                 return False, f"Failed to download model: {model_name}"
@@ -1304,7 +1323,11 @@ class PromptManagerTool(Tool):
                     )
                     progress(0.8, desc="Generating prompt...")
                 else:
-                    progress(0.1, desc="Starting LLM server...")
+                    # Show appropriate message based on whether download is needed
+                    if _is_model_local(model_name, user_config):
+                        progress(0.1, desc="Starting LLM server...")
+                    else:
+                        progress(0.05, desc=f"Downloading {model_name}...")
                     success, error = _start_server(model_name, user_config, progress)
                     if not success:
                         return gr.update(), f"Server error: {error}", gr.update(), gr.update()

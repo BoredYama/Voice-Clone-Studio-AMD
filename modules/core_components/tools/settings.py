@@ -329,7 +329,8 @@ class SettingsTool(Tool):
                             "output": "output",
                             "datasets": "datasets",
                             "temp": "temp",
-                            "models": "models"
+                            "models": "models",
+                            "trained_models": "trained_models"
                         }
                         components['default_folders'] = default_folders
 
@@ -371,7 +372,7 @@ class SettingsTool(Tool):
                             with gr.Column():
                                 components['settings_trained_models_folder'] = gr.Textbox(
                                     label="Trained Models Folder",
-                                    value=_user_config.get("trained_models_folder", default_folders["models"]),
+                                    value=_user_config.get("trained_models_folder", default_folders["trained_models"]),
                                     info="Folder for your custom trained models"
                                 )
                                 components['reset_trained_models_btn'] = gr.Button("Reset", size="sm")
@@ -618,7 +619,7 @@ class SettingsTool(Tool):
         )
 
         components['reset_trained_models_btn'].click(
-            lambda: reset_folder("models"),
+            lambda: reset_folder("trained_models"),
             outputs=[components['settings_trained_models_folder']]
         )
 

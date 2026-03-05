@@ -116,8 +116,9 @@ OUTPUT_DIR = Path(__file__).parent / _user_config.get("output_folder", "output")
 DATASETS_DIR = Path(__file__).parent / _user_config.get("datasets_folder", "datasets")
 TEMP_DIR = Path(__file__).parent / _user_config.get("temp_folder", "temp")
 MODELS_DIR = Path(__file__).parent / _user_config.get("models_folder", "models")
+TRAINED_MODELS_DIR = Path(__file__).parent / _user_config.get("trained_models_folder", "trained_models")
 
-for dir_path in [SAMPLES_DIR, OUTPUT_DIR, DATASETS_DIR, TEMP_DIR, MODELS_DIR]:
+for dir_path in [SAMPLES_DIR, OUTPUT_DIR, DATASETS_DIR, TEMP_DIR, MODELS_DIR, TRAINED_MODELS_DIR]:
     dir_path.mkdir(exist_ok=True)
 
 # Clean temp folder at startup
@@ -152,6 +153,7 @@ from modules.core_components.constants import (
     DEFAULT_CONFIG as DEFAULT_CONFIG_TEMPLATE,
     QWEN_GENERATION_DEFAULTS,
     VIBEVOICE_GENERATION_DEFAULTS,
+    VIBEVOICE_STREAMING_VOICES,
     MODEL_SIZES_MMAUDIO,
     MMAUDIO_GENERATION_DEFAULTS,
 )
@@ -229,6 +231,7 @@ def create_ui():
                 'DEFAULT_ASR_MODEL': DEFAULT_ASR_MODEL,
                 'LANGUAGES': LANGUAGES,
                 'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
+                'VIBEVOICE_STREAMING_VOICES': VIBEVOICE_STREAMING_VOICES,
             },
             managers={
                 'tts_manager': _tts_manager,
@@ -247,6 +250,8 @@ def create_ui():
             tool_components = create_enabled_tools(shared_state)
         # Make main_tabs available to tools' setup_events for tab switching
         shared_state['main_tabs_component'] = main_tabs
+        # Pass app reference so tools can register app.load() handlers for initial visibility
+        shared_state['app'] = app
         setup_tool_events(tool_components, shared_state)
 
         # Wire up unload button

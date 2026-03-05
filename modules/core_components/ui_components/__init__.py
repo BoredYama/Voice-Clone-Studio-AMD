@@ -181,13 +181,13 @@ def create_qwen_advanced_params(
 
 
 def create_vibevoice_advanced_params(
-    initial_num_steps=20,
-    initial_cfg_scale=3.0,
+    initial_num_steps=10,
+    initial_cfg_scale=1.3,
     initial_do_sample=False,
     initial_temperature=1.0,
     initial_top_k=50,
     initial_top_p=1.0,
-    initial_repetition_penalty=1.1,
+    initial_repetition_penalty=1.0,
     initial_paragraph_per_chunk=False,
     include_paragraph_per_chunk=False,
     visible=True

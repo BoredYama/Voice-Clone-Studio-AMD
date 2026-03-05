@@ -61,6 +61,20 @@ class TTSManager:
         self._trained_model_path = None
         self._trained_model_is_faster = False
 
+        # VibeVoice Streaming model cache
+        self._vibevoice_streaming_model = None
+        self._vibevoice_streaming_processor = None
+        self._vibevoice_streaming_voice_cache = {}
+
+        # VibeVoice Trained (LoRA) model cache
+        self._trained_vibevoice_model = None
+        self._trained_vibevoice_path = None
+        self._trained_vv_base_connectors = None    # original connector state dicts
+        self._trained_vv_lora_connectors = None    # trained connector state dicts
+        self._trained_vv_base_pred_head = None     # original prediction head state dict (CPU)
+        self._trained_vv_lora_pred_head = None     # trained prediction head state dict (CPU)
+        self._trained_vv_pred_head_is_peft = False  # True if diffusion head loaded as LoRA
+
         # Chatterbox models
         self._chatterbox_tts_model = None
         self._chatterbox_vc_model = None
@@ -311,6 +325,125 @@ class TTSManager:
 
         return self._vibevoice_tts_model
 
+    def get_vibevoice_streaming(self):
+        """Load VibeVoice Streaming 0.5B model and processor."""
+        self._check_and_unload_if_different("vibevoice_streaming")
+
+        if self._vibevoice_streaming_model is None:
+            print("Loading VibeVoice Streaming 0.5B...")
+            try:
+                from modules.vibevoice_tts.modular.modeling_vibevoice_streaming_inference import (
+                    VibeVoiceStreamingForConditionalGenerationInference
+                )
+                from modules.vibevoice_tts.processor.vibevoice_streaming_processor import (
+                    VibeVoiceStreamingProcessor
+                )
+                import warnings
+
+                model_path = "microsoft/VibeVoice-Realtime-0.5B"
+                device = get_device(self.user_config.get("tts_gpu", 0))
+                dtype = get_dtype(device)
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning)
+
+                    # Load model
+                    offline_mode = self.user_config.get("offline_mode", False)
+                    local_path = check_model_available_locally(model_path)
+                    load_path = str(local_path) if local_path else model_path
+
+                    if local_path:
+                        print(f"Loading from local: {local_path}")
+                    else:
+                        print(f"Downloading model from HuggingFace: {model_path} (~2 GB)...")
+
+                    self._vibevoice_streaming_model = (
+                        VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+                            load_path,
+                            dtype=dtype,
+                            local_files_only=offline_mode,
+                        ).to(device)
+                    )
+
+                    # Load processor
+                    self._vibevoice_streaming_processor = (
+                        VibeVoiceStreamingProcessor.from_pretrained(
+                            load_path,
+                            local_files_only=offline_mode,
+                        )
+                    )
+
+                print("VibeVoice Streaming 0.5B loaded!")
+
+            except ImportError as e:
+                print(f"VibeVoice Streaming not available: {e}")
+                raise
+            except Exception as e:
+                print(f"Error loading VibeVoice Streaming: {e}")
+                raise
+
+        return self._vibevoice_streaming_model, self._vibevoice_streaming_processor
+
+    def _get_streaming_voice_prompt(self, voice_name):
+        """Load or cache a streaming voice prompt (.pt file).
+
+        Voice prompts are pre-computed KV cache embeddings stored  in the
+        microsoft/VibeVoice GitHub repo.  On first use the .pt file is
+        downloaded and cached under models/vibevoice/voices/.
+        """
+        if voice_name in self._vibevoice_streaming_voice_cache:
+            return self._vibevoice_streaming_voice_cache[voice_name]
+
+        from modules.core_components.constants import VIBEVOICE_STREAMING_VOICE_FILES
+
+        repo_filename = VIBEVOICE_STREAMING_VOICE_FILES.get(voice_name)
+        if not repo_filename:
+            raise RuntimeError(
+                f"Unknown streaming voice '{voice_name}'. "
+                f"Available: {list(VIBEVOICE_STREAMING_VOICE_FILES.keys())}"
+            )
+
+        # Local cache directory: models/vibevoice/voices/
+        models_dir = Path(__file__).parent.parent.parent.parent / "models"
+        voices_dir = models_dir / "vibevoice" / "voices"
+        voices_dir.mkdir(parents=True, exist_ok=True)
+        local_pt = voices_dir / f"{repo_filename}.pt"
+
+        # Download from GitHub if not cached locally
+        if not local_pt.exists():
+            offline_mode = self.user_config.get("offline_mode", False)
+            if offline_mode:
+                raise RuntimeError(
+                    f"Voice prompt '{voice_name}' not found locally and offline mode is enabled. "
+                    f"Disable offline mode to download it automatically."
+                )
+            import urllib.request
+            url = (
+                f"https://github.com/microsoft/VibeVoice/raw/main/"
+                f"demo/voices/streaming_model/{repo_filename}.pt"
+            )
+            print(f"Downloading voice prompt: {voice_name} from GitHub...")
+            print(f"  URL: {url}")
+            try:
+                urllib.request.urlretrieve(url, str(local_pt))
+                size_mb = local_pt.stat().st_size / (1024 * 1024)
+                print(f"  Saved to {local_pt} ({size_mb:.1f} MB)")
+            except Exception as dl_err:
+                # Clean up partial download
+                if local_pt.exists():
+                    local_pt.unlink()
+                raise RuntimeError(
+                    f"Failed to download voice prompt for '{voice_name}' from {url}: {dl_err}"
+                )
+
+        device = get_device(self.user_config.get("tts_gpu", 0))
+        # weights_only=False required: .pt files contain BaseModelOutputWithPast
+        # objects (pre-computed KV caches), not plain tensors.  Source is the
+        # official microsoft/VibeVoice repo.
+        cached_prompt = torch.load(str(local_pt), map_location=device, weights_only=False)
+        self._vibevoice_streaming_voice_cache[voice_name] = cached_prompt
+        return cached_prompt
+
     def get_luxtts(self):
         """Load LuxTTS model (lazy import to avoid slowing app startup)."""
         self._check_and_unload_if_different("luxtts")
@@ -407,6 +540,24 @@ class TTSManager:
             self._trained_model_path = None
             self._trained_model_is_faster = False
             freed.append("Trained Model")
+
+        if self._vibevoice_streaming_model is not None:
+            del self._vibevoice_streaming_model
+            self._vibevoice_streaming_model = None
+            self._vibevoice_streaming_processor = None
+            self._vibevoice_streaming_voice_cache = {}
+            freed.append("VibeVoice Streaming")
+
+        if self._trained_vibevoice_model is not None:
+            del self._trained_vibevoice_model
+            self._trained_vibevoice_model = None
+            self._trained_vibevoice_path = None
+            self._trained_vv_base_connectors = None
+            self._trained_vv_lora_connectors = None
+            self._trained_vv_base_pred_head = None
+            self._trained_vv_lora_pred_head = None
+            self._trained_vv_pred_head_is_peft = False
+            freed.append("VibeVoice Trained")
 
         if freed:
             gc.collect()
@@ -595,7 +746,7 @@ class TTSManager:
         else:
             # Unload previous trained model if switching checkpoints
             if self._trained_model is not None:
-                print(f"Switching trained model checkpoint, unloading previous...")
+                print("Switching trained model checkpoint, unloading previous...")
                 del self._trained_model
                 self._trained_model = None
                 self._trained_model_path = None
@@ -765,6 +916,445 @@ class TTSManager:
 
         return audio_data, sr
 
+    def generate_vibevoice_streaming(self, text, voice_name, cfg_scale=1.5,
+                                     ddpm_steps=20, seed=-1):
+        """
+        Generate audio using VibeVoice Streaming 0.5B with baked-in voices.
+
+        Args:
+            text: Text to generate
+            voice_name: Name of pre-built voice (Carter, Davis, Emma, etc.)
+            cfg_scale: Classifier-free guidance scale
+            ddpm_steps: Number of DDPM denoising steps
+            seed: Random seed (-1 for random)
+
+        Returns:
+            Tuple: (audio_array, sample_rate)
+        """
+        import random
+        import copy
+
+        if seed < 0:
+            seed = random.randint(0, 2147483647)
+        set_seed(seed)
+
+        print(f"VibeVoice Speakers: voice={voice_name}, seed={seed}, cfg={cfg_scale}, steps={ddpm_steps}")
+        print(f"Text: {text[:80]}{'...' if len(text) > 80 else ''}")
+
+        print("Loading model...")
+        model, processor = self.get_vibevoice_streaming()
+
+        print(f"Loading voice prompt: {voice_name}...")
+        cached_prompt = self._get_streaming_voice_prompt(voice_name)
+
+        print("Processing input...")
+        # Process text with cached voice prompt
+        inputs = processor.process_input_with_cached_prompt(
+            text=text,
+            cached_prompt=cached_prompt,
+            padding=True,
+            return_tensors="pt",
+            return_attention_mask=True,
+        )
+
+        # Move inputs to model device
+        device = next(model.parameters()).device
+        for k, v in inputs.items():
+            if isinstance(v, torch.Tensor):
+                inputs[k] = v.to(device)
+
+        # Generate
+        import time
+        print("Generating audio...")
+        gen_start = time.time()
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                tokenizer=processor.tokenizer,
+                cfg_scale=cfg_scale,
+                ddpm_steps=ddpm_steps,
+                all_prefilled_outputs=copy.deepcopy(cached_prompt),
+            )
+        gen_time = time.time() - gen_start
+        print(f"Generation complete in {gen_time:.1f}s")
+
+        # Extract audio from generation output
+        print("Decoding audio...")
+        sr = 24000
+        audio_data = None
+        if outputs.speech_outputs:
+            audio_data = outputs.speech_outputs[0]  # batch index 0
+
+        if audio_data is None:
+            raise RuntimeError("No speech output was generated")
+
+        if hasattr(audio_data, "cpu"):
+            audio_data = audio_data.float().cpu().numpy()
+        elif hasattr(audio_data, "numpy"):
+            audio_data = audio_data.numpy()
+
+        # Flatten to 1D mono for soundfile
+        audio_data = audio_data.squeeze()
+        if audio_data.ndim > 1:
+            audio_data = audio_data[0]
+
+        return audio_data, sr
+
+    def _apply_lora_scale(self, model, scale):
+        """Apply a scaling factor to all trained components.
+
+        Handles three kinds of trained weights:
+        1. PEFT LoRA layers (language model, optionally diffusion head):
+           Uses set_scale to multiply the adapter contribution.
+        2. Full-weight diffusion head (diffusion_head_full.bin):
+           Linearly interpolates between original and trained state dicts.
+        3. Connectors (acoustic_connector, semantic_connector):
+           Linearly interpolates between original and trained state dicts.
+
+        At scale 0.0 the model behaves as the unmodified base model.
+        At scale 1.0 all trained weights are fully applied.
+
+        Args:
+            model: The VibeVoice model with trained weights loaded
+            scale: Float multiplier (0.0 = base model, 1.0 = full trained)
+        """
+        # --- 1. PEFT LoRA layers (language model + optionally prediction head) ---
+        try:
+            from peft.tuners.lora.layer import LoraLayer
+        except ImportError:
+            LoraLayer = None
+
+        lora_count = 0
+        if LoraLayer is not None:
+            for component in [model.model.language_model, model.model.prediction_head]:
+                if component is None:
+                    continue
+                for module in component.modules():
+                    if isinstance(module, LoraLayer):
+                        for adapter_name in module.scaling:
+                            module.set_scale(adapter_name, scale)
+                        lora_count += 1
+
+        # --- 2. Full-weight diffusion head interpolation ---
+        base_pred = self._trained_vv_base_pred_head
+        lora_pred = self._trained_vv_lora_pred_head
+        if base_pred and lora_pred and not self._trained_vv_pred_head_is_peft:
+            device = next(model.model.prediction_head.parameters()).device
+            interpolated = {}
+            for key in base_pred:
+                if key in lora_pred:
+                    interpolated[key] = (
+                        base_pred[key] * (1.0 - scale) + lora_pred[key] * scale
+                    ).to(device)
+                else:
+                    interpolated[key] = base_pred[key].to(device)
+            model.model.prediction_head.load_state_dict(interpolated)
+
+        # --- 3. Connector interpolation ---
+        base_connectors = self._trained_vv_base_connectors
+        lora_connectors = self._trained_vv_lora_connectors
+        if base_connectors and lora_connectors:
+            for cname in base_connectors:
+                connector = getattr(model.model, cname, None)
+                if connector is None or cname not in lora_connectors:
+                    continue
+                base_sd = base_connectors[cname]
+                lora_sd = lora_connectors[cname]
+                interpolated = {}
+                for key in base_sd:
+                    if key in lora_sd:
+                        interpolated[key] = base_sd[key] * (1.0 - scale) + lora_sd[key] * scale
+                    else:
+                        interpolated[key] = base_sd[key]
+                connector.load_state_dict(interpolated)
+
+        print(f"LoRA scale applied: {scale:.2f} "
+              f"({lora_count} LoRA layers, "
+              f"pred_head={'interpolated' if (base_pred and lora_pred and not self._trained_vv_pred_head_is_peft) else 'peft' if self._trained_vv_pred_head_is_peft else 'unchanged'}, "
+              f"connectors={'interpolated' if (base_connectors and lora_connectors) else 'unchanged'})")
+
+
+    def generate_with_trained_vibevoice(self, text, language, checkpoint_path,
+                                        seed=-1, do_sample=False,
+                                        temperature=1.0, top_k=50,
+                                        top_p=1.0, repetition_penalty=1.0,
+                                        cfg_scale=1.3, num_steps=10,
+                                        max_new_tokens=2048, user_config=None,
+                                        voice_sample_path=None,
+                                        lora_scale=1.0,
+                                        progress_callback=None):
+        """
+        Generate audio using a trained VibeVoice LoRA checkpoint.
+
+        Loads the base VibeVoice 1.5B model, applies LoRA adapters,
+        and generates speech. Optionally uses a voice sample for additional
+        voice conditioning on top of the LoRA weights.
+
+        Args:
+            text: Text to generate
+            language: Language for TTS (used in prompt formatting)
+            checkpoint_path: Path to trained model folder (containing lora/ subdir)
+            seed: Random seed (-1 for random)
+            do_sample: Enable sampling
+            temperature: Sampling temperature
+            top_k: Top-k sampling
+            top_p: Top-p sampling
+            repetition_penalty: Repetition penalty
+            cfg_scale: Classifier-free guidance scale
+            num_steps: Number of DDPM denoising steps
+            max_new_tokens: Maximum tokens to generate
+            user_config: User configuration dict
+            voice_sample_path: Optional path to voice sample WAV for additional conditioning
+            lora_scale: LoRA adapter strength multiplier (0.0 = base model, 1.0 = full LoRA)
+
+        Returns:
+            Tuple: (audio_array, sample_rate)
+        """
+        import random
+
+        if seed < 0:
+            seed = random.randint(0, 2147483647)
+        set_seed(seed)
+
+        if user_config is None:
+            user_config = {}
+
+        device = get_device(user_config.get("tts_gpu", 0))
+        dtype = get_dtype(device)
+        checkpoint_str = str(checkpoint_path)
+
+        # Reuse cached model if same checkpoint
+        if self._trained_vibevoice_model is not None and self._trained_vibevoice_path == checkpoint_str:
+            model = self._trained_vibevoice_model
+            model.set_ddpm_inference_steps(num_steps=int(num_steps))
+            print(f"Reusing cached VibeVoice LoRA model: {Path(checkpoint_str).name}")
+        else:
+            # Unload previous
+            if self._trained_vibevoice_model is not None:
+                print("Switching VibeVoice LoRA checkpoint, unloading previous...")
+                del self._trained_vibevoice_model
+                self._trained_vibevoice_model = None
+                self._trained_vibevoice_path = None
+                empty_device_cache()
+
+            # Unload other models to free VRAM
+            self._check_and_unload_if_different("trained_vibevoice")
+
+            print(f"Loading VibeVoice base model + LoRA from {Path(checkpoint_str).name}...")
+            if progress_callback:
+                progress_callback(0.2, desc=f"Loading VibeVoice base model...")
+
+            from modules.vibevoice_tts.modular.modeling_vibevoice_inference import (
+                VibeVoiceForConditionalGenerationInference
+            )
+            from modules.vibevoice_tts.modular.lora_loading import load_lora_assets
+
+            # Load base model — try FranckyB variant first (same weights,
+            # often already cached from voice cloning)
+            offline_mode = user_config.get("offline_mode", False)
+            load_path = None
+            for candidate_id in ["FranckyB/VibeVoice-1.5B", "vibevoice/VibeVoice-1.5B"]:
+                local_path = check_model_available_locally(candidate_id)
+                if local_path:
+                    load_path = str(local_path)
+                    break
+            if not load_path:
+                # Fall back to HF hub resolution
+                load_path = "FranckyB/VibeVoice-1.5B"
+
+            # Pick attention implementation (flash_attention_2 for CUDA, sdpa otherwise)
+            attn_candidates = get_attention_implementation(
+                user_config.get("attention_mechanism", "auto")
+            )
+            attn_impl = attn_candidates[0] if isinstance(attn_candidates, list) else attn_candidates
+
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                try:
+                    model = VibeVoiceForConditionalGenerationInference.from_pretrained(
+                        load_path,
+                        torch_dtype=dtype,
+                        local_files_only=offline_mode,
+                        attn_implementation=attn_impl,
+                    ).to(device)
+                except Exception as e:
+                    if attn_impl == "flash_attention_2":
+                        print(f"Flash Attention 2 failed ({e}), falling back to SDPA")
+                        model = VibeVoiceForConditionalGenerationInference.from_pretrained(
+                            load_path,
+                            torch_dtype=dtype,
+                            local_files_only=offline_mode,
+                            attn_implementation="sdpa",
+                        ).to(device)
+                    else:
+                        raise
+
+            # Configure noise scheduler (SDE solver, matches upstream)
+            model.model.noise_scheduler = model.model.noise_scheduler.from_config(
+                model.model.noise_scheduler.config,
+                algorithm_type='sde-dpmsolver++',
+                beta_schedule='squaredcos_cap_v2',
+            )
+            model.set_ddpm_inference_steps(num_steps=int(num_steps))
+
+            # Snapshot original weights before LoRA replaces them.
+            # Connectors stay on-device (small), prediction head goes to CPU
+            # (can be 235 MB) to avoid doubling VRAM usage.
+            import copy
+            self._trained_vv_base_connectors = {}
+            for cname in ('acoustic_connector', 'semantic_connector'):
+                connector = getattr(model.model, cname, None)
+                if connector is not None:
+                    self._trained_vv_base_connectors[cname] = copy.deepcopy(connector.state_dict())
+
+            # Snapshot prediction head on CPU before LoRA loading
+            self._trained_vv_base_pred_head = {
+                k: v.clone().cpu() for k, v in model.model.prediction_head.state_dict().items()
+            }
+
+            # Apply LoRA adapters (supports both model/lora/files and model/files layouts)
+            if progress_callback:
+                progress_callback(0.35, desc="Applying LoRA adapters...")
+            report = load_lora_assets(model, checkpoint_str)
+            print(f"LoRA loaded: {report}")
+
+            # Snapshot trained connector weights so we can interpolate later
+            self._trained_vv_lora_connectors = {}
+            for cname in ('acoustic_connector', 'semantic_connector'):
+                connector = getattr(model.model, cname, None)
+                if connector is not None:
+                    self._trained_vv_lora_connectors[cname] = copy.deepcopy(connector.state_dict())
+
+            # Diffusion head: if loaded as full weights (not LoRA), snapshot
+            # the trained weights for interpolation.
+            self._trained_vv_pred_head_is_peft = report.diffusion_head_lora
+            if report.diffusion_head_full:
+                self._trained_vv_lora_pred_head = {
+                    k: v.clone().cpu()
+                    for k, v in model.model.prediction_head.state_dict().items()
+                }
+                print(f"Prediction head full weights cached for interpolation "
+                      f"({len(self._trained_vv_lora_pred_head)} tensors)")
+            else:
+                self._trained_vv_lora_pred_head = None
+
+            # Cache
+            self._trained_vibevoice_model = model
+            self._trained_vibevoice_path = checkpoint_str
+
+        # Load processor — try FranckyB variant first (same tokenizer)
+        if progress_callback:
+            progress_callback(0.5, desc="Loading processor...")
+        from modules.vibevoice_tts.processor.vibevoice_processor import VibeVoiceProcessor
+        offline_mode = user_config.get("offline_mode", False)
+
+        processor_path = None
+        for candidate_id in ["FranckyB/VibeVoice-1.5B", "vibevoice/VibeVoice-1.5B"]:
+            local_path = check_model_available_locally(candidate_id)
+            if local_path:
+                processor_path = str(local_path)
+                break
+        if not processor_path:
+            processor_path = "FranckyB/VibeVoice-1.5B"
+
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="The tokenizer class you load from this checkpoint")
+            try:
+                processor = VibeVoiceProcessor.from_pretrained(
+                    processor_path,
+                    local_files_only=offline_mode,
+                )
+            except Exception:
+                # Last resort: try the other repo ID
+                fallback_id = "vibevoice/VibeVoice-1.5B"
+                fb_local = check_model_available_locally(fallback_id)
+                if fb_local:
+                    processor = VibeVoiceProcessor.from_pretrained(str(fb_local))
+                else:
+                    processor = VibeVoiceProcessor.from_pretrained(fallback_id)
+
+        # Apply LoRA scaling if not default (1.0)
+        if lora_scale != 1.0:
+            self._apply_lora_scale(model, float(lora_scale))
+            print(f"LoRA strength: {lora_scale:.2f}")
+        else:
+            # Reset to default scale in case it was changed previously
+            self._apply_lora_scale(model, 1.0)
+
+        # Build generation config (same pattern as voice clone)
+        gen_config = {'do_sample': do_sample}
+        if do_sample:
+            gen_config['temperature'] = float(temperature)
+            if top_k > 0:
+                gen_config['top_k'] = int(top_k)
+            if top_p < 1.0:
+                gen_config['top_p'] = float(top_p)
+            if repetition_penalty != 1.0:
+                gen_config['repetition_penalty'] = float(repetition_penalty)
+
+        # Format input text with Speaker prefix required by processor
+        # Speaker 0 = no voice conditioning, Speaker 1 = with voice sample
+        formatted_text = f"[{language}] {text.strip()}" if language and language != "Auto" else text.strip()
+        use_voice_sample = voice_sample_path is not None
+        speaker_id = "1" if use_voice_sample else "0"
+        formatted_text = f"Speaker {speaker_id}: {formatted_text}"
+
+        if use_voice_sample:
+            print(f"Using voice sample for conditioning: {Path(voice_sample_path).name}")
+
+        if progress_callback:
+            progress_callback(0.6, desc="Generating audio...")
+
+        with torch.no_grad():
+            inputs = processor(
+                text=[formatted_text],
+                voice_samples=[[voice_sample_path]] if use_voice_sample else None,
+                padding=True,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
+
+            # Move to device
+            for k, v in inputs.items():
+                if isinstance(v, torch.Tensor):
+                    inputs[k] = v.to(device)
+
+            # is_prefill=True enables speech prefill (voice conditioning)
+            # Must be True when voice sample is provided, False otherwise
+            wavs = model.generate(
+                **inputs,
+                max_new_tokens=None,
+                cfg_scale=float(cfg_scale),
+                tokenizer=processor.tokenizer,
+                generation_config=gen_config,
+                verbose=False,
+                is_prefill=use_voice_sample,
+                progress_callback=progress_callback,
+                progress_start=0.6,
+                progress_end=0.95,
+            )
+
+        # VibeVoiceGenerationOutput: .sequences (token IDs), .speech_outputs (list of audio tensors)
+        if not wavs.speech_outputs or wavs.speech_outputs[0] is None:
+            raise RuntimeError("Model generated tokens but produced no speech audio. Try increasing max_new_tokens or adjusting CFG scale.")
+
+        audio_data = wavs.speech_outputs[0]
+        if hasattr(audio_data, "cpu"):
+            audio_data = audio_data.float().cpu().numpy()
+        elif hasattr(audio_data, "numpy"):
+            audio_data = audio_data.numpy()
+
+        import numpy as np
+        # Squeeze extra dims (e.g. (1, T) or (1, 1, T) → (T,)) — matches upstream save_audio
+        audio_data = np.squeeze(audio_data)
+        if audio_data.dtype not in (np.float32, np.float64, np.int16, np.int32):
+            audio_data = audio_data.astype(np.float32)
+
+        sr = 24000
+        return audio_data, sr
+
     def generate_voice_clone_qwen(self, text, language, prompt_items, seed=-1,
                                   do_sample=True, temperature=0.9, top_k=50,
                                   top_p=1.0, repetition_penalty=1.05,
@@ -856,9 +1446,10 @@ class TTSManager:
     def generate_voice_clone_vibevoice(self, text, voice_sample_path, seed=-1,
                                        do_sample=False, temperature=1.0, top_k=50,
                                        top_p=1.0, repetition_penalty=1.0,
-                                       cfg_scale=3.0, num_steps=20,
+                                       cfg_scale=1.3, num_steps=10,
                                        paragraph_per_chunk=False,
-                                       model_size="Large", user_config=None):
+                                       model_size="Large", user_config=None,
+                                       progress_callback=None):
         """
         Generate audio using VibeVoice voice cloning.
 
@@ -892,6 +1483,8 @@ class TTSManager:
         set_seed(seed)
 
         # Load model
+        if progress_callback:
+            progress_callback(0.1, desc=f"Loading VibeVoice - {model_size}...")
         model = self.get_vibevoice_tts(model_size)
 
         from modules.vibevoice_tts.processor.vibevoice_processor import VibeVoiceProcessor
@@ -947,6 +1540,10 @@ class TTSManager:
                 audio_segments = []
 
                 for idx, para in enumerate(paragraphs):
+                    if progress_callback:
+                        pct = 0.2 + (idx / len(paragraphs)) * 0.7
+                        progress_callback(pct, desc=f"Generating paragraph {idx + 1}/{len(paragraphs)}...")
+
                     chunk_script = f"Speaker 1: {para}"
 
                     chunk_inputs = processor(
@@ -963,6 +1560,9 @@ class TTSManager:
 
                     model.set_ddpm_inference_steps(num_steps=int(num_steps))
 
+                    # Map chunk progress within its slice of the overall bar
+                    _chunk_start = 0.2 + 0.7 * idx / len(paragraphs)
+                    _chunk_end = 0.2 + 0.7 * (idx + 1) / len(paragraphs)
                     outputs = model.generate(
                         **chunk_inputs,
                         max_new_tokens=None,
@@ -970,6 +1570,9 @@ class TTSManager:
                         tokenizer=processor.tokenizer,
                         generation_config=gen_config,
                         verbose=False,
+                        progress_callback=progress_callback,
+                        progress_start=_chunk_start,
+                        progress_end=_chunk_end,
                     )
 
                     if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -992,6 +1595,8 @@ class TTSManager:
         text = re.sub(r'\n+', ' ', text).strip()
 
         # Standard single-pass generation (no chunking)
+        if progress_callback:
+            progress_callback(0.2, desc="Preparing VibeVoice generation...")
         formatted_script = f"Speaker 1: {text}"
 
         # Process inputs
@@ -1012,6 +1617,8 @@ class TTSManager:
         model.set_ddpm_inference_steps(num_steps=int(num_steps))
 
         # Generate
+        if progress_callback:
+            progress_callback(0.3, desc="Generating audio with VibeVoice...")
         outputs = model.generate(
             **inputs,
             max_new_tokens=None,
@@ -1019,6 +1626,9 @@ class TTSManager:
             tokenizer=processor.tokenizer,
             generation_config=gen_config,
             verbose=False,
+            progress_callback=progress_callback,
+            progress_start=0.3,
+            progress_end=0.95,
         )
 
         if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -1673,11 +2283,12 @@ class TTSManager:
                 top_k=vp.get('top_k', 50),
                 top_p=vp.get('top_p', 1.0),
                 repetition_penalty=vp.get('repetition_penalty', 1.0),
-                cfg_scale=vp.get('cfg_scale', 3.0),
-                num_steps=vp.get('num_steps', 20),
+                cfg_scale=vp.get('cfg_scale', 1.3),
+                num_steps=vp.get('num_steps', 10),
                 paragraph_per_chunk=bool(vp.get('paragraph_per_chunk', False)),
                 model_size=model_size,
                 user_config=user_config or {},
+                progress_callback=progress_callback,
             )
         elif engine == "luxtts":
             audio_data, sr, _ = self.generate_voice_clone_luxtts(

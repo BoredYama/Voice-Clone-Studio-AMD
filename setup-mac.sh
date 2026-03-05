@@ -21,7 +21,7 @@ echo ""
 
 # Find a compatible Python version (3.10-3.12, 3.13+ not supported)
 PYTHON_CMD=""
-for PYVER in python3.12 python3.11 python3.10; do
+for PYVER in python3.11 python3.10 python3.12; do
     if command -v "$PYVER" >/dev/null 2>&1; then
         PYTHON_CMD="$PYVER"
         break

@@ -1,5 +1,29 @@
 # Version History
 
+## March 3, 2026
+#### Version 1.10.0 - VibeVoice Training, Trained Model Inference & Streaming Voice Presets
+
+**VibeVoice LoRA Training**
+- **Dual-Engine Training** - Train custom voices with either Qwen3-TTS or VibeVoice LoRA finetuning
+- **Full Parameter UI** - All training parameters exposed with auto-save/restore per engine
+- **Stop Training** - Terminate training mid-run with clean status
+- **EMA Support** - Exponential Moving Average with auto-decay for short runs
+- **Clean Output** - Filtered verbose logs into clean per-epoch summaries
+
+**Voice Presets — VibeVoice Trained**
+- **Trained Model Inference** - Generate with trained VibeVoice LoRA checkpoints (LM LoRA + diffusion head + connectors)
+- **Optional Voice Sample** - Apply trained LoRA on top of a voice sample with adjustable strength
+- **Smart Caching** - Trained models stay cached, auto-reload on checkpoint change
+
+**Voice Presets — VibeVoice Speakers**
+- **7 Built-in Voices** - VibeVoice Streaming 0.5B with Carter, Davis, Emma, Frank, Grace, Mike, Samuel
+- **Auto-Download** - Voice prompts auto-download from GitHub and cache locally
+- **Fast Generation** - KV-cache for fast repeated generation
+
+**Other Changes**
+- **Python 3.11 Recommended** - DeepFilterNet lacks wheels for 3.12
+- **Gradio Visibility Fix** - Fixed hidden sections not rendering on first toggle
+
 ## March 1, 2026
 #### Version 1.9.0 - CUDA Graphs Acceleration & Multi-GPU Support
 
