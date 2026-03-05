@@ -812,6 +812,7 @@ class VoicePresetsTool(Tool):
                     user_config=user_config,
                     voice_sample_path=voice_sample_path,
                     lora_scale=effective_lora_scale,
+                    progress_callback=progress,
                 )
                 progress(0.8, desc="Saving audio...")
                 from modules.core_components.audio_utils import make_stem_from_text, resolve_output_stem

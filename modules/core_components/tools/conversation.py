@@ -1156,6 +1156,8 @@ class ConversationTool(Tool):
                             if torch.is_tensor(v):
                                 chunk_inputs[k] = v.to(device)
 
+                        _chunk_start = 0.5 + (0.4 * idx / len(chunks))
+                        _chunk_end = 0.5 + (0.4 * (idx + 1) / len(chunks))
                         outputs = model.generate(
                             **chunk_inputs,
                             max_new_tokens=None,
@@ -1163,6 +1165,9 @@ class ConversationTool(Tool):
                             tokenizer=processor.tokenizer,
                             generation_config=gen_config,
                             verbose=False,
+                            progress_callback=progress,
+                            progress_start=_chunk_start,
+                            progress_end=_chunk_end,
                         )
 
                         if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -1186,6 +1191,9 @@ class ConversationTool(Tool):
                         tokenizer=processor.tokenizer,
                         generation_config=gen_config,
                         verbose=False,
+                        progress_callback=progress,
+                        progress_start=0.5,
+                        progress_end=0.9,
                     )
 
                     if outputs.speech_outputs and outputs.speech_outputs[0] is not None:

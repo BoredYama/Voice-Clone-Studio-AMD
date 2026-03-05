@@ -1081,7 +1081,8 @@ class TTSManager:
                                         cfg_scale=1.3, num_steps=10,
                                         max_new_tokens=2048, user_config=None,
                                         voice_sample_path=None,
-                                        lora_scale=1.0):
+                                        lora_scale=1.0,
+                                        progress_callback=None):
         """
         Generate audio using a trained VibeVoice LoRA checkpoint.
 
@@ -1140,6 +1141,8 @@ class TTSManager:
             self._check_and_unload_if_different("trained_vibevoice")
 
             print(f"Loading VibeVoice base model + LoRA from {Path(checkpoint_str).name}...")
+            if progress_callback:
+                progress_callback(0.2, desc=f"Loading VibeVoice base model...")
 
             from modules.vibevoice_tts.modular.modeling_vibevoice_inference import (
                 VibeVoiceForConditionalGenerationInference
@@ -1211,6 +1214,8 @@ class TTSManager:
             }
 
             # Apply LoRA adapters (supports both model/lora/files and model/files layouts)
+            if progress_callback:
+                progress_callback(0.35, desc="Applying LoRA adapters...")
             report = load_lora_assets(model, checkpoint_str)
             print(f"LoRA loaded: {report}")
 
@@ -1239,6 +1244,8 @@ class TTSManager:
             self._trained_vibevoice_path = checkpoint_str
 
         # Load processor — try FranckyB variant first (same tokenizer)
+        if progress_callback:
+            progress_callback(0.5, desc="Loading processor...")
         from modules.vibevoice_tts.processor.vibevoice_processor import VibeVoiceProcessor
         offline_mode = user_config.get("offline_mode", False)
 
@@ -1297,6 +1304,9 @@ class TTSManager:
         if use_voice_sample:
             print(f"Using voice sample for conditioning: {Path(voice_sample_path).name}")
 
+        if progress_callback:
+            progress_callback(0.6, desc="Generating audio...")
+
         with torch.no_grad():
             inputs = processor(
                 text=[formatted_text],
@@ -1321,6 +1331,9 @@ class TTSManager:
                 generation_config=gen_config,
                 verbose=False,
                 is_prefill=use_voice_sample,
+                progress_callback=progress_callback,
+                progress_start=0.6,
+                progress_end=0.95,
             )
 
         # VibeVoiceGenerationOutput: .sequences (token IDs), .speech_outputs (list of audio tensors)
@@ -1435,7 +1448,8 @@ class TTSManager:
                                        top_p=1.0, repetition_penalty=1.0,
                                        cfg_scale=1.3, num_steps=10,
                                        paragraph_per_chunk=False,
-                                       model_size="Large", user_config=None):
+                                       model_size="Large", user_config=None,
+                                       progress_callback=None):
         """
         Generate audio using VibeVoice voice cloning.
 
@@ -1469,6 +1483,8 @@ class TTSManager:
         set_seed(seed)
 
         # Load model
+        if progress_callback:
+            progress_callback(0.1, desc=f"Loading VibeVoice - {model_size}...")
         model = self.get_vibevoice_tts(model_size)
 
         from modules.vibevoice_tts.processor.vibevoice_processor import VibeVoiceProcessor
@@ -1524,6 +1540,10 @@ class TTSManager:
                 audio_segments = []
 
                 for idx, para in enumerate(paragraphs):
+                    if progress_callback:
+                        pct = 0.2 + (idx / len(paragraphs)) * 0.7
+                        progress_callback(pct, desc=f"Generating paragraph {idx + 1}/{len(paragraphs)}...")
+
                     chunk_script = f"Speaker 1: {para}"
 
                     chunk_inputs = processor(
@@ -1540,6 +1560,9 @@ class TTSManager:
 
                     model.set_ddpm_inference_steps(num_steps=int(num_steps))
 
+                    # Map chunk progress within its slice of the overall bar
+                    _chunk_start = 0.2 + 0.7 * idx / len(paragraphs)
+                    _chunk_end = 0.2 + 0.7 * (idx + 1) / len(paragraphs)
                     outputs = model.generate(
                         **chunk_inputs,
                         max_new_tokens=None,
@@ -1547,6 +1570,9 @@ class TTSManager:
                         tokenizer=processor.tokenizer,
                         generation_config=gen_config,
                         verbose=False,
+                        progress_callback=progress_callback,
+                        progress_start=_chunk_start,
+                        progress_end=_chunk_end,
                     )
 
                     if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -1569,6 +1595,8 @@ class TTSManager:
         text = re.sub(r'\n+', ' ', text).strip()
 
         # Standard single-pass generation (no chunking)
+        if progress_callback:
+            progress_callback(0.2, desc="Preparing VibeVoice generation...")
         formatted_script = f"Speaker 1: {text}"
 
         # Process inputs
@@ -1589,6 +1617,8 @@ class TTSManager:
         model.set_ddpm_inference_steps(num_steps=int(num_steps))
 
         # Generate
+        if progress_callback:
+            progress_callback(0.3, desc="Generating audio with VibeVoice...")
         outputs = model.generate(
             **inputs,
             max_new_tokens=None,
@@ -1596,6 +1626,9 @@ class TTSManager:
             tokenizer=processor.tokenizer,
             generation_config=gen_config,
             verbose=False,
+            progress_callback=progress_callback,
+            progress_start=0.3,
+            progress_end=0.95,
         )
 
         if outputs.speech_outputs and outputs.speech_outputs[0] is not None:
@@ -2255,6 +2288,7 @@ class TTSManager:
                 paragraph_per_chunk=bool(vp.get('paragraph_per_chunk', False)),
                 model_size=model_size,
                 user_config=user_config or {},
+                progress_callback=progress_callback,
             )
         elif engine == "luxtts":
             audio_data, sr, _ = self.generate_voice_clone_luxtts(

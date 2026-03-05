@@ -78,14 +78,14 @@ Change the voice in any audio using Chatterbox speech-to-speech voice conversion
 ### Voice Presets
 Generate with premium pre-built voices, trained models, and streaming speakers:
 
-**Qwen Speakers:**
-- 9 premium Qwen3-TTS speakers with style instructions (emotion, tone, speed)
-- Each speaker works best in native language but supports all
-
 **VibeVoice Trained:**
 - Generate with your own VibeVoice LoRA-trained voices
 - Optional voice sample conditioning with adjustable LoRA strength
 - Advanced params: CFG scale, DDPM steps, temperature, top_k, top_p, repetition penalty
+
+**Qwen Speakers:**
+- 9 premium Qwen3-TTS speakers with style instructions (emotion, tone, speed)
+- Each speaker works best in native language but supports all
 
 **VibeVoice Speakers:**
 - 7 built-in VibeVoice Streaming 0.5B preset voices (Carter, Davis, Emma, Frank, Grace, Mike, Samuel)

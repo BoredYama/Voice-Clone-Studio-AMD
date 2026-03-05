@@ -483,6 +483,12 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         max_step_per_sample = torch.min(generation_config.max_length - initial_length_per_sample, (max_length_times * initial_length_per_sample).long())
         reach_max_step_sample = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
+        # External progress callback (e.g. Gradio progress bar)
+        progress_callback = kwargs.get("progress_callback", None)
+        progress_start = kwargs.get("progress_start", 0.3)
+        progress_end = kwargs.get("progress_end", 0.95)
+        _last_progress_pct = -1
+
         # Create progress iterator if verbose
         if kwargs.get("show_progress_bar", True):
             progress_bar = tqdm(range(max_steps), desc="Generating", leave=False)
@@ -490,6 +496,16 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
             progress_bar = range(max_steps)
 
         for step in progress_bar:
+            # Forward progress to external callback (Gradio UI)
+            if progress_callback is not None and max_steps > 0:
+                pct = int(step * 100 / max_steps)
+                if pct >= _last_progress_pct + 2 or step == 0:
+                    _last_progress_pct = pct
+                    mapped = progress_start + (progress_end - progress_start) * (step / max_steps)
+                    try:
+                        progress_callback(mapped, desc=f"Generating - {pct}%")
+                    except Exception:
+                        pass
             # Check for external stop signal
             if stop_check_fn is not None and stop_check_fn():
                 if verbose:
