@@ -250,6 +250,8 @@ def create_ui():
             tool_components = create_enabled_tools(shared_state)
         # Make main_tabs available to tools' setup_events for tab switching
         shared_state['main_tabs_component'] = main_tabs
+        # Pass app reference so tools can register app.load() handlers for initial visibility
+        shared_state['app'] = app
         setup_tool_events(tool_components, shared_state)
 
         # Wire up unload button

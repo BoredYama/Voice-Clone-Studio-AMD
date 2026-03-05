@@ -47,7 +47,8 @@ class SoundEffectsTool(Tool):
             "Medium (44kHz)", "Large v2 (44kHz)"
         ]
 
-        with gr.TabItem("SFX", id="tab_sound_effects"):
+        with gr.TabItem("SFX", id="tab_sound_effects") as sfx_tab:
+            components['sfx_tab'] = sfx_tab
             gr.Markdown("Generate sound effects and foley audio from text prompts or video clips")
             # Mode toggle
             components['sfx_mode'] = gr.Radio(
@@ -138,8 +139,8 @@ class SoundEffectsTool(Tool):
 
                 # Right column: Video + Audio output (narrow)
                 with gr.Column(scale=1):
-                    # Video section — hidden by default, shown in Video to Audio mode
-                    with gr.Group(visible=False) as sfx_video_group:
+                    # Video section — starts visible=True for DOM rendering; toggle_mode on tab.select hides it
+                    with gr.Group(visible=True) as sfx_video_group:
 
                         # Radio to switch between source and result
                         components['sfx_video_toggle'] = gr.Radio(
@@ -220,6 +221,17 @@ class SoundEffectsTool(Tool):
             )
 
         components['sfx_mode'].change(
+            toggle_mode,
+            inputs=[components['sfx_mode']],
+            outputs=[
+                components['sfx_video_group'],
+                components['sfx_prompt'],
+                components['sfx_duration'],
+            ]
+        )
+
+        # Set correct mode visibility on tab select
+        components['sfx_tab'].select(
             toggle_mode,
             inputs=[components['sfx_mode']],
             outputs=[
@@ -569,6 +581,19 @@ class SoundEffectsTool(Tool):
                 _apply_sfx_negative,
                 inputs=[prompt_apply_trigger, components['sfx_negative_prompt']],
                 outputs=[components['sfx_negative_prompt']],
+            )
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_mode,
+                inputs=[components['sfx_mode']],
+                outputs=[
+                    components['sfx_video_group'],
+                    components['sfx_prompt'],
+                    components['sfx_duration'],
+                ]
             )
 
 

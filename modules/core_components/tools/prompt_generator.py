@@ -35,8 +35,11 @@ LLM_MODELS = {
     "Qwen3-4B-Q8_0.gguf": {
         "repo": "Qwen/Qwen3-4B-GGUF",
     },
-    "Qwen3-8B-Q8_0.gguf": {
-        "repo": "Qwen/Qwen3-8B-GGUF",
+    "Qwen3.5-9B-UD-Q4_K_XL.gguf": {
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+    },
+    "Qwen3.5-9B-Q8_0.gguf": {
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
     },
 }
 

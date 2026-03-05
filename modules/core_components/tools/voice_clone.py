@@ -146,11 +146,11 @@ class VoiceCloneTool(Tool):
                             scale=1
                         )
 
-                    # Determine which model is initially selected to conditionally show/hide parameters
-                    is_qwen_initial = "Qwen" in saved_model
+                    # All param sections start visible=True so Gradio renders their DOM.
+                    # toggle_engine_params on tab.select sets the correct visibility.
 
                     # Language dropdown (hidden for VibeVoice models)
-                    components['language_row'] = gr.Row(visible=is_qwen_initial)
+                    components['language_row'] = gr.Row(visible=True)
                     with components['language_row']:
                         components['language_dropdown'] = gr.Dropdown(
                             choices=LANGUAGES,
@@ -161,7 +161,7 @@ class VoiceCloneTool(Tool):
                     # Qwen3 Advanced Parameters (create_qwen_advanced_params includes its own accordion)
                     create_qwen_advanced_params = shared_state['create_qwen_advanced_params']
 
-                    components['qwen_params_col'] = gr.Column(visible=is_qwen_initial)
+                    components['qwen_params_col'] = gr.Column(visible=True)
                     with components['qwen_params_col']:
                         qwen_params = create_qwen_advanced_params(
                             emotions_dict=_active_emotions,
@@ -191,9 +191,8 @@ class VoiceCloneTool(Tool):
                     components['qwen_max_new_tokens'] = qwen_params['max_new_tokens']
 
                     # VibeVoice Advanced Parameters
-                    is_vv_initial = "VibeVoice" in saved_model
                     create_vibevoice_advanced_params = shared_state['create_vibevoice_advanced_params']
-                    components['vv_params_col'] = gr.Column(visible=is_vv_initial)
+                    components['vv_params_col'] = gr.Column(visible=True)
                     with components['vv_params_col']:
                         vv_params = create_vibevoice_advanced_params(
                             include_paragraph_per_chunk=True,
@@ -210,9 +209,8 @@ class VoiceCloneTool(Tool):
                     components['vv_top_p'] = vv_params['top_p']
 
                     # LuxTTS Advanced Parameters
-                    is_lux_initial = "LuxTTS" in saved_model
                     create_luxtts_advanced_params = shared_state['create_luxtts_advanced_params']
-                    components['luxtts_params_col'] = gr.Column(visible=is_lux_initial)
+                    components['luxtts_params_col'] = gr.Column(visible=True)
                     with components['luxtts_params_col']:
                         luxtts_params = create_luxtts_advanced_params(
                             visible=True
@@ -227,9 +225,8 @@ class VoiceCloneTool(Tool):
                     components['luxtts_guidance_scale'] = luxtts_params['guidance_scale']
 
                     # Chatterbox Advanced Parameters
-                    is_cb_initial = "Chatterbox" in saved_model
                     create_chatterbox_advanced_params = shared_state['create_chatterbox_advanced_params']
-                    components['cb_params_col'] = gr.Column(visible=is_cb_initial)
+                    components['cb_params_col'] = gr.Column(visible=True)
                     with components['cb_params_col']:
                         cb_params = create_chatterbox_advanced_params(
                             visible=True
@@ -242,8 +239,7 @@ class VoiceCloneTool(Tool):
                     components['cb_top_p'] = cb_params['top_p']
 
                     # Chatterbox Multilingual language dropdown (only shown for Chatterbox - Multilingual)
-                    is_cb_mtl_initial = "Multilingual" in saved_model
-                    components['cb_language_row'] = gr.Row(visible=is_cb_mtl_initial)
+                    components['cb_language_row'] = gr.Row(visible=True)
                     with components['cb_language_row']:
                         from modules.core_components.constants import CHATTERBOX_LANGUAGES
                         components['cb_language_dropdown'] = gr.Dropdown(
@@ -933,6 +929,17 @@ class VoiceCloneTool(Tool):
             outputs=[]
         )
 
+        # Set correct engine visibility on tab select (all sections start visible=True for DOM rendering)
+        components['voice_clone_tab'].select(
+            toggle_engine_params,
+            inputs=[components['clone_model_dropdown']],
+            outputs=[components['qwen_params_col'], components['vv_params_col'], components['luxtts_params_col'], components['cb_params_col']]
+        ).then(
+            toggle_language_visibility,
+            inputs=[components['clone_model_dropdown']],
+            outputs=[components['language_row'], components['cb_language_row']]
+        )
+
         # Save language selection
         components['language_dropdown'].change(
             lambda x: save_preference("language", x),
@@ -969,6 +976,20 @@ class VoiceCloneTool(Tool):
         # --- Cross-tab prompt routing ---
         import modules.core_components.prompt_hub as _prompt_hub
         _prompt_hub.wire_prompt_loader(components, "vc", {"voice_clone.text": components['text_input']})
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_engine_params,
+                inputs=[components['clone_model_dropdown']],
+                outputs=[components['qwen_params_col'], components['vv_params_col'], components['luxtts_params_col'], components['cb_params_col']]
+            )
+            app.load(
+                toggle_language_visibility,
+                inputs=[components['clone_model_dropdown']],
+                outputs=[components['language_row'], components['cb_language_row']]
+            )
 
         prompt_apply_trigger = shared_state.get('prompt_apply_trigger')
         if prompt_apply_trigger is not None:

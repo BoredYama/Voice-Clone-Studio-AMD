@@ -15,7 +15,7 @@ onnxruntime
 onnxruntime-gpu; sys_platform != 'darwin'
 
 # Web UI and utilities
-gradio
+gradio>=6.7.0,<6.8.0
 gradio_filelister @ file:wheel/gradio_filelister-0.4.0-py3-none-any.whl
 diffusers
 markdown

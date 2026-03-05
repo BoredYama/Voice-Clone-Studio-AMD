@@ -73,9 +73,9 @@ class VoicePresetsTool(Tool):
             initial_voice_type = _user_config.get("voice_type", "VibeVoice Trained")
             if initial_voice_type not in ALL_VOICE_TYPES:
                 initial_voice_type = "VibeVoice Trained"
-            is_premium = (initial_voice_type.strip() == "Qwen Speakers")
-            is_vv_trained = (initial_voice_type.strip() == "VibeVoice Trained")
-            is_vv_streaming = (initial_voice_type.strip() == "VibeVoice Speakers")
+
+            # All sections start visible=True so Gradio renders their DOM.
+            # toggle_voice_type on tab.select sets the correct visibility.
 
             components['voice_type_radio'] = gr.Radio(
                 choices=ALL_VOICE_TYPES,
@@ -90,7 +90,7 @@ class VoicePresetsTool(Tool):
                 with gr.Column(scale=1):
                     gr.Markdown("### Select Voice Type")
                     # Qwen Speakers dropdown
-                    components['speaker_section'] = gr.Column(visible=is_premium)
+                    components['speaker_section'] = gr.Column(visible=True)
                     with components['speaker_section']:
                         speaker_choices = CUSTOM_VOICE_SPEAKERS
                         components['custom_speaker_dropdown'] = gr.Dropdown(
@@ -131,8 +131,7 @@ class VoicePresetsTool(Tool):
                             padding=True
                         )
                     # Trained models dropdown (Qwen3)
-                    is_qwen_trained = not is_premium and not is_vv_trained and not is_vv_streaming
-                    components['trained_section'] = gr.Column(visible=is_qwen_trained)
+                    components['trained_section'] = gr.Column(visible=True)
                     with components['trained_section']:
                         def get_initial_model_list():
                             """Get initial list of trained models for dropdown initialization."""
@@ -209,7 +208,7 @@ class VoicePresetsTool(Tool):
                         )
 
                     # VibeVoice Trained models (LoRA checkpoints)
-                    components['vv_trained_section'] = gr.Column(visible=is_vv_trained)
+                    components['vv_trained_section'] = gr.Column(visible=True)
                     with components['vv_trained_section']:
                         def get_initial_vv_model_list():
                             """Get initial list of trained VibeVoice models."""
@@ -281,7 +280,7 @@ class VoicePresetsTool(Tool):
                         )
 
                     # VibeVoice Streaming (baked-in voices)
-                    components['vv_streaming_section'] = gr.Column(visible=is_vv_streaming)
+                    components['vv_streaming_section'] = gr.Column(visible=True)
                     with components['vv_streaming_section']:
                         components['vv_streaming_voice_dropdown'] = gr.Dropdown(
                             choices=VIBEVOICE_STREAMING_VOICES,
@@ -326,7 +325,7 @@ class VoicePresetsTool(Tool):
                         placeholder="e.g., 'Speak with excitement' or 'Very sad and slow' or '用愤怒的语气说'",
                         lines=2,
                         info="Control emotion, tone, speed, etc.",
-                        visible=is_premium
+                        visible=True
                     )
 
                     import modules.core_components.prompt_hub as _prompt_hub
@@ -347,7 +346,7 @@ class VoicePresetsTool(Tool):
                         )
 
                     # --- Qwen Speakers Advanced Parameters (no emotions) ---
-                    components['qwen_custom_advanced'] = gr.Column(visible=is_premium)
+                    components['qwen_custom_advanced'] = gr.Column(visible=True)
                     with components['qwen_custom_advanced']:
                         custom_params = create_qwen_advanced_params(
                             emotions_dict=_active_emotions,
@@ -364,7 +363,7 @@ class VoicePresetsTool(Tool):
                     components['custom_params'] = custom_params
 
                     # --- Trained Models Advanced Parameters (with emotions) ---
-                    components['qwen_trained_advanced'] = gr.Column(visible=is_qwen_trained)
+                    components['qwen_trained_advanced'] = gr.Column(visible=True)
                     with components['qwen_trained_advanced']:
                         trained_params = create_qwen_advanced_params(
                             emotions_dict=_active_emotions,
@@ -391,7 +390,7 @@ class VoicePresetsTool(Tool):
                     components['trained_params'] = trained_params
 
                     # --- VibeVoice Trained Parameters ---
-                    components['vv_trained_advanced'] = gr.Column(visible=is_vv_trained)
+                    components['vv_trained_advanced'] = gr.Column(visible=True)
                     with components['vv_trained_advanced']:
                         vv_trained_params = create_vibevoice_advanced_params(visible=True)
                     components['vv_trained_cfg_scale'] = vv_trained_params['cfg_scale']
@@ -404,7 +403,7 @@ class VoicePresetsTool(Tool):
                     components['vv_trained_params'] = vv_trained_params
 
                     # --- VibeVoice Streaming Parameters ---
-                    components['vv_streaming_advanced'] = gr.Column(visible=is_vv_streaming)
+                    components['vv_streaming_advanced'] = gr.Column(visible=True)
                     with components['vv_streaming_advanced']:
                         with gr.Accordion("Streaming Parameters", open=False):
                             with gr.Row():
@@ -945,20 +944,23 @@ class VoicePresetsTool(Tool):
                     progress
                 )
 
+        # Shared output list for section visibility toggling
+        section_outputs = [
+            components['speaker_section'], components['trained_section'],
+            components['vv_trained_section'], components['vv_streaming_section'],
+            components['custom_instruct_input'],
+            components['qwen_custom_advanced'],
+            components['qwen_trained_advanced'],
+            components['vv_trained_advanced'],
+            components['vv_streaming_advanced'],
+        ]
+
         # Only wire events for components that exist (not None)
         if components.get('voice_type_radio') is not None:
             components['voice_type_radio'].change(
                 toggle_voice_type,
                 inputs=[components['voice_type_radio']],
-                outputs=[
-                    components['speaker_section'], components['trained_section'],
-                    components['vv_trained_section'], components['vv_streaming_section'],
-                    components['custom_instruct_input'],
-                    components['qwen_custom_advanced'],
-                    components['qwen_trained_advanced'],
-                    components['vv_trained_advanced'],
-                    components['vv_streaming_advanced'],
-                ]
+                outputs=section_outputs
             ).then(
                 lambda x: save_preference("voice_type", x),
                 inputs=[components['voice_type_radio']],
@@ -995,15 +997,7 @@ class VoicePresetsTool(Tool):
         ).then(
             toggle_voice_type,
             inputs=[components['voice_type_radio']],
-            outputs=[
-                components['speaker_section'], components['trained_section'],
-                components['vv_trained_section'], components['vv_streaming_section'],
-                components['custom_instruct_input'],
-                components['qwen_custom_advanced'],
-                components['qwen_trained_advanced'],
-                components['vv_trained_advanced'],
-                components['vv_streaming_advanced'],
-            ]
+            outputs=section_outputs
         )
 
         # Restore saved params when accordion is opened
@@ -1287,6 +1281,15 @@ class VoicePresetsTool(Tool):
                 _apply_vp_style,
                 inputs=[prompt_apply_trigger, components['custom_instruct_input']],
                 outputs=[components['custom_instruct_input']],
+            )
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_voice_type,
+                inputs=[components['voice_type_radio']],
+                outputs=section_outputs
             )
 
 # Export for tab registry

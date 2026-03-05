@@ -84,11 +84,9 @@ class ConversationTool(Tool):
         initial_conv_model = _user_config.get("conv_model_type", "VibeVoice")
         if initial_conv_model not in visible_choices:
             initial_conv_model = visible_choices[0]
-        is_vibevoice = initial_conv_model == "VibeVoice"
-        is_qwen_base = initial_conv_model == "Qwen Base"
-        is_qwen_custom = initial_conv_model == "Qwen Speakers"
-        is_luxtts = initial_conv_model == "LuxTTS"
-        is_chatterbox = initial_conv_model == "Chatterbox"
+
+        # All sections start visible=True so Gradio renders their DOM.
+        # toggle_conv_ui on tab.select sets the correct visibility.
 
         with gr.TabItem("Conversation", id="tab_conversation") as conv_tab:
             components['conv_tab'] = conv_tab
@@ -131,7 +129,7 @@ class ConversationTool(Tool):
                     )
 
                     # Qwen Speakers voice assignment (preset voices from CUSTOM_VOICE_SPEAKERS)
-                    components['qwen_speakers_voices_section'] = gr.Column(visible=is_qwen_custom)
+                    components['qwen_speakers_voices_section'] = gr.Column(visible=True)
                     with components['qwen_speakers_voices_section']:
                         gr.Markdown("### Assign Preset Voices (Up to 4 Speakers)")
 
@@ -165,8 +163,7 @@ class ConversationTool(Tool):
                                 )
 
                     # Shared voice sample selectors (used by Qwen Base, LuxTTS, Chatterbox, VibeVoice)
-                    uses_samples = is_qwen_base or is_luxtts or is_chatterbox or is_vibevoice
-                    components['shared_voices_section'] = gr.Column(visible=uses_samples)
+                    components['shared_voices_section'] = gr.Column(visible=True)
                     with components['shared_voices_section']:
                         gr.Markdown("### Voice Samples (Up to 4 Speakers)")
 
@@ -209,7 +206,7 @@ class ConversationTool(Tool):
                     gr.Markdown("### Settings")
 
                     # Qwen Speakers settings
-                    components['qwen_custom_settings'] = gr.Column(visible=is_qwen_custom)
+                    components['qwen_custom_settings'] = gr.Column(visible=True)
                     with components['qwen_custom_settings']:
                         components['conv_model_size'] = gr.Dropdown(
                             choices=MODEL_SIZES_CUSTOM,
@@ -219,7 +216,7 @@ class ConversationTool(Tool):
                         )
 
                     # Qwen Base settings
-                    components['qwen_base_settings'] = gr.Column(visible=is_qwen_base)
+                    components['qwen_base_settings'] = gr.Column(visible=True)
                     with components['qwen_base_settings']:
                         components['conv_base_model_size'] = gr.Dropdown(
                             choices=MODEL_SIZES_BASE,
@@ -228,18 +225,10 @@ class ConversationTool(Tool):
                             info="Small = Faster, Large = Better Quality"
                         )
 
-                    # Shared Language and Seed
-                    is_qwen_initial = is_qwen_base or is_qwen_custom
+                    # Shared Language and Seed — always start with full list, toggle_conv_ui adjusts
                     from modules.core_components.constants import CHATTERBOX_LANGUAGES
-                    if is_qwen_initial:
-                        initial_lang_choices = LANGUAGES
-                        initial_lang_value = _user_config.get("language", "Auto")
-                    elif is_chatterbox:
-                        initial_lang_choices = CHATTERBOX_LANGUAGES
-                        initial_lang_value = "English"
-                    else:
-                        initial_lang_choices = ["Auto"]
-                        initial_lang_value = "Auto"
+                    initial_lang_choices = LANGUAGES
+                    initial_lang_value = _user_config.get("language", "Auto")
                     with gr.Column():
                         with gr.Row():
                             components['conv_language'] = gr.Dropdown(
@@ -257,7 +246,7 @@ class ConversationTool(Tool):
                             )
 
                     # Shared Pause Controls
-                    components['qwen_pause_controls'] = gr.Accordion("Pause Controls", open=False, visible=(is_qwen_custom or is_qwen_base))
+                    components['qwen_pause_controls'] = gr.Accordion("Pause Controls", open=False, visible=True)
                     with components['qwen_pause_controls']:
                         with gr.Column():
                             components['conv_pause_linebreak'] = gr.Slider(
@@ -306,7 +295,7 @@ class ConversationTool(Tool):
                                 )
 
                     # Chatterbox-specific settings
-                    components['cb_settings'] = gr.Column(visible=is_chatterbox)
+                    components['cb_settings'] = gr.Column(visible=True)
                     with components['cb_settings']:
                         # Pause between lines
                         components['cb_pause_linebreak'] = gr.Slider(
@@ -331,7 +320,7 @@ class ConversationTool(Tool):
                         components['cb_conv_accordion'] = cb_conv_params.get('accordion')
 
                     # LuxTTS-specific settings
-                    components['luxtts_settings'] = gr.Column(visible=is_luxtts)
+                    components['luxtts_settings'] = gr.Column(visible=True)
                     with components['luxtts_settings']:
                         # Pause between lines
                         components['luxtts_pause_linebreak'] = gr.Slider(
@@ -357,9 +346,9 @@ class ConversationTool(Tool):
                         components['lux_conv_accordion'] = lux_conv_params.get('accordion')
 
                     # VibeVoice settings
-                    components['vibevoice_settings'] = gr.Column(visible=is_vibevoice)
+                    components['vibevoice_settings'] = gr.Column(visible=True)
                     with components['vibevoice_settings']:
-                        components['vv_model_size_row'] = gr.Row(visible=is_vibevoice)
+                        components['vv_model_size_row'] = gr.Row(visible=True)
                         with components['vv_model_size_row']:
                             components['longform_model_size'] = gr.Dropdown(
                                 choices=MODEL_SIZES_VIBEVOICE,
@@ -384,7 +373,7 @@ class ConversationTool(Tool):
                         components['vv_conv_accordion'] = vv_conv_params.get('accordion')
 
                     # Qwen Custom Voice Advanced Parameters
-                    components['qwen_custom_conv_advanced'] = gr.Column(visible=is_qwen_custom)
+                    components['qwen_custom_conv_advanced'] = gr.Column(visible=True)
                     with components['qwen_custom_conv_advanced']:
                         qwen_custom_conv_params = create_qwen_advanced_params(
                             include_emotion=False,
@@ -399,7 +388,7 @@ class ConversationTool(Tool):
                         components['qwen_custom_conv_accordion'] = qwen_custom_conv_params.get('accordion')
 
                     # Qwen Base Advanced Parameters
-                    components['qwen_base_conv_advanced'] = gr.Column(visible=is_qwen_base)
+                    components['qwen_base_conv_advanced'] = gr.Column(visible=True)
                     with components['qwen_base_conv_advanced']:
                         # Emotion intensity slider (Base only)
                         components['conv_emotion_intensity_row'] = gr.Row()
@@ -482,28 +471,28 @@ class ConversationTool(Tool):
                         value=format_help_html(qwen_custom_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_qwen_custom
+                        visible=True
                     )
 
                     components['qwen_base_tips'] = gr.HTML(
                         value=format_help_html(qwen_base_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_qwen_base
+                        visible=True
                     )
 
                     components['vibevoice_tips'] = gr.HTML(
                         value=format_help_html(vibevoice_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_vibevoice
+                        visible=True
                     )
 
                     components['luxtts_tips'] = gr.HTML(
                         value=format_help_html(luxtts_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_luxtts
+                        visible=True
                     )
 
                     chatterbox_tips_text = dedent("""\
@@ -520,7 +509,7 @@ class ConversationTool(Tool):
                         value=format_help_html(chatterbox_tips_text),
                         container=True,
                         padding=True,
-                        visible=is_chatterbox
+                        visible=True
                     )
 
             return components
@@ -1721,20 +1710,26 @@ class ConversationTool(Tool):
                 components['vv_model_size_row']: gr.update(visible=is_vibevoice),
             }
 
+        # All sections start visible=True so Gradio renders their DOM.
+        # toggle_conv_ui on tab.select sets the correct visibility.
+        conv_section_outputs = [
+            components['qwen_speakers_voices_section'],
+            components['shared_voices_section'],
+            components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
+            components['qwen_custom_conv_advanced'], components['qwen_base_conv_advanced'],
+            components['luxtts_settings'],
+            components['vibevoice_settings'],
+            components['cb_settings'],
+            components['qwen_custom_tips'], components['qwen_base_tips'], components['vibevoice_tips'],
+            components['luxtts_tips'], components['cb_tips'],
+            components['conv_language'],
+            components['vv_model_size_row'],
+        ]
+
         components['conv_model_type'].change(
             toggle_conv_ui,
             inputs=[components['conv_model_type']],
-            outputs=[components['qwen_speakers_voices_section'],
-                     components['shared_voices_section'],
-                     components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
-                     components['qwen_custom_conv_advanced'], components['qwen_base_conv_advanced'],
-                     components['luxtts_settings'],
-                     components['vibevoice_settings'],
-                     components['cb_settings'],
-                     components['qwen_custom_tips'], components['qwen_base_tips'], components['vibevoice_tips'],
-                     components['luxtts_tips'], components['cb_tips'],
-                     components['conv_language'],
-                     components['vv_model_size_row']]
+            outputs=conv_section_outputs
         )
 
         # Refresh voice samples handler
@@ -1744,7 +1739,7 @@ class ConversationTool(Tool):
             update = gr.update(choices=updated_samples)
             return [update] * 4
 
-        # Auto-refresh all voice sample dropdowns when tab is selected
+        # Auto-refresh all voice sample dropdowns when tab is selected, then set correct visibility
         components['conv_tab'].select(
             refresh_all_voice_samples,
             outputs=[
@@ -1754,17 +1749,7 @@ class ConversationTool(Tool):
         ).then(
             toggle_conv_ui,
             inputs=[components['conv_model_type']],
-            outputs=[components['qwen_speakers_voices_section'],
-                     components['shared_voices_section'],
-                     components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
-                     components['qwen_custom_conv_advanced'], components['qwen_base_conv_advanced'],
-                     components['luxtts_settings'],
-                     components['vibevoice_settings'],
-                     components['cb_settings'],
-                     components['qwen_custom_tips'], components['qwen_base_tips'], components['vibevoice_tips'],
-                     components['luxtts_tips'], components['cb_tips'],
-                     components['conv_language'],
-                     components['vv_model_size_row']]
+            outputs=conv_section_outputs
         )
 
         # Restore saved params when accordion is opened
@@ -1853,6 +1838,15 @@ class ConversationTool(Tool):
                 _apply_conv_script,
                 inputs=[prompt_apply_trigger, components['conversation_script']],
                 outputs=[components['conversation_script']],
+            )
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_conv_ui,
+                inputs=[components['conv_model_type']],
+                outputs=conv_section_outputs
             )
 
 

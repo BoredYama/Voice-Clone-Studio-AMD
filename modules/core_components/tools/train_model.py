@@ -70,8 +70,8 @@ class TrainModelTool(Tool):
 
                     components['refresh_train_folder_btn'] = gr.Button("Refresh Datasets", size="sm", visible=False)
 
-                    # Qwen3: needs reference audio selection
-                    with gr.Group(visible=is_qwen) as qwen_ref_section:
+                    # Qwen3: needs reference audio selection (starts visible=True for DOM rendering)
+                    with gr.Group(visible=True) as qwen_ref_section:
                         components['qwen_ref_section'] = qwen_ref_section
 
                         components['ref_audio_lister'] = FileLister(
@@ -114,7 +114,7 @@ class TrainModelTool(Tool):
                         components['train_accordion'] = train_accordion
 
                         # --- Qwen3 training parameters ---
-                        with gr.Group(visible=is_qwen) as qwen_params_section:
+                        with gr.Group(visible=True) as qwen_params_section:
                             components['qwen_params_section'] = qwen_params_section
 
                             with gr.Row():
@@ -144,7 +144,7 @@ class TrainModelTool(Tool):
                                 )
 
                         # --- VibeVoice training parameters ---
-                        with gr.Group(visible=not is_qwen) as vv_params_section:
+                        with gr.Group(visible=True) as vv_params_section:
                             components['vv_params_section'] = vv_params_section
 
                             with gr.Row():
@@ -517,12 +517,31 @@ class TrainModelTool(Tool):
             outputs=[components['training_status']]
         )
 
-        # Tab select: refresh datasets
+        # Tab select: refresh datasets and set correct section visibility
+        train_toggle_outputs = [
+            components['qwen_ref_section'],
+            components['qwen_params_section'],
+            components['vv_params_section'],
+        ]
+
         components['train_tab'].select(
             refresh_datasets_keep_selection,
             inputs=[components['train_folder_dropdown']],
             outputs=[components['train_folder_dropdown']]
+        ).then(
+            toggle_model_type,
+            inputs=[components['model_type_radio']],
+            outputs=train_toggle_outputs
         )
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_model_type,
+                inputs=[components['model_type_radio']],
+                outputs=train_toggle_outputs
+            )
 
 
 # Export for tab registry
