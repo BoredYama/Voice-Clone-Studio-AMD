@@ -107,7 +107,7 @@ class VibeVoiceASRProcessor:
         """
         import json
         from transformers.utils import cached_file
-        from vibevoice_tts.modular.modular_vibevoice_text_tokenizer import VibeVoiceASRTextTokenizerFast
+        from modules.vibevoice_tts.modular.modular_vibevoice_text_tokenizer import VibeVoiceASRTextTokenizerFast
         
         # Try to load configuration
         config_path = os.path.join(pretrained_model_name_or_path, "preprocessor_config.json")

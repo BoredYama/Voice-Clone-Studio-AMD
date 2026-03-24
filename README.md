@@ -5,9 +5,9 @@
 **⚠️ LINUX ONLY ⚠️**
 This is a fork of Voice Clone Studio optimized for **AMD GPUs** on **Linux** using **ROCm 7.1**. Windows and macOS are **NOT** supported in this version.
 
-Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and Whisper for automatic transcription. As well as Llama.cpp for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
+A multi-model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion, voice training and sound effects. Basically, One app, many engines, to tinker with all of them without juggling separate repos or setups.  Powered by [VibeVoice](https://github.com/microsoft/VibeVoice), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR), [VibeVoice-ASR](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr.md) and [Whisper](https://github.com/openai/whisper) for automatic transcription. As well as [llama.cpp](https://github.com/ggerganov/llama.cpp) and [Ollama](https://ollama.com/) for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
 
-![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
+<img src="https://img.shields.io/badge/VibeVoice-TTS-green" alt="VibeVoice TTS"> <img src="https://img.shields.io/badge/VibeVoice-ASR-green" alt="VibeVoice ASR"> <img src="https://img.shields.io/badge/Qwen3-TTS-blue" alt="Qwen3-TTS"> <img src="https://img.shields.io/badge/Qwen3-ASR-blue" alt="Qwen3-ASR"> <img src="https://img.shields.io/badge/LuxTTS-TTS-orange" alt="LuxTTS"> <img src="https://img.shields.io/badge/Chatterbox-TTS-red" alt="Chatterbox-TTS"> <img src="https://img.shields.io/badge/Whisper-yellow" alt="Whisper"> <img src="https://img.shields.io/badge/MMAudio-SFX-purple" alt="MMAudio">
 
 <a href="docs/preview.png"><img src="docs/preview.png" alt="Voice Clone Studio Preview" width="600"></a>
 
@@ -25,6 +25,8 @@ Clone voices from your own audio samples. Provide a short reference audio clip w
 - **Voice prompt caching** - First generation processes the sample, subsequent ones are instant
 - **Seed control** - Reproducible results with saved seeds
 - **Emotion presets** - 40+ emotion presets with adjustable intensity
+- **Split by Paragraph** - Generate a separate audio clip for each paragraph, with automatic naming and a combined preview
+- **Prompt Hub** - Access saved prompts directly from the tool without switching tabs
 - **Metadata tracking** - Each output saves generation info (sample, seed, text)
 
 ### Conversation
@@ -89,10 +91,25 @@ Change the voice in any audio using Chatterbox speech-to-speech voice conversion
 
 ### Voice Presets
 
-Generate with premium pre-built voices with optional style instructions using Qwen3-TTS Custom Model:
+Generate with premium pre-built voices, trained models, and streaming speakers:
 
-- Style instructions supported (emotion, tone, speed)
+**VibeVoice Trained:**
+- Generate with your own VibeVoice LoRA-trained voices
+- Optional voice sample conditioning with adjustable LoRA strength
+- Advanced params: CFG scale, DDPM steps, temperature, top_k, top_p, repetition penalty
+
+**Qwen Speakers:**
+- 9 premium Qwen3-TTS speakers with style instructions (emotion, tone, speed)
 - Each speaker works best in native language but supports all
+
+**VibeVoice Speakers:**
+- 7 built-in VibeVoice Streaming 0.5B preset voices (Carter, Davis, Emma, Frank, Grace, Mike, Samuel)
+- Lightweight 0.5B model with fast generation
+- Auto-downloads voice prompt files from GitHub, caches locally
+
+**Qwen Trained:**
+- Generate with Qwen3-TTS finetuned models
+- ICL (In-Context Learning) mode for enhanced voice cloning
 
 ### Voice Design
 
@@ -105,12 +122,20 @@ Create voices from natural language descriptions - no audio needed, using Qwen3-
 
 Fine-tune your own custom voice models with your training data:
 
+- **Dual Engine** - Train with Qwen3-TTS or VibeVoice LoRA finetuning
 - **Dataset Management** - Organize training samples in the `datasets/` folder
 - **Audio Preparation** - Auto-converts to 24kHz 16-bit mono format
 - **Training Pipeline** - Complete 3-step workflow (validation → extract codes → train)
 - **Epoch Selection** - Compare different training checkpoints
 - **Live Progress** - Real-time training logs and loss monitoring
+- **Stop Training** - Terminate training mid-run with clean status
 - **Voice Presets Integration** - Use trained models alongside premium speakers
+
+**VibeVoice Training Features:**
+- LoRA finetuning via subprocess with full parameter UI
+- Configurable: batch size, learning rate, epochs, save interval, DDPM batch multiplier, diffusion/CE loss weights, voice prompt drop, gradient accumulation, warmup steps
+- Train diffusion head toggle, EMA on/off with auto-decay calculation
+- Verbose output filtering — clean per-epoch summaries instead of raw logs
 
 **Requirements:**
 
@@ -155,10 +180,12 @@ Generate sound effects and ambient audio using MMAudio (CVPR 2025, MIT license):
 
 ### Prompt Manager
 
-Save, browse, and generate text prompts for your TTS sessions. Includes a built-in LLM generator powered by [llama.cpp](https://github.com/ggml-org/llama.cpp):
+Save, browse, and generate text prompts for your TTS sessions. Includes a built-in LLM generator powered by [llama.cpp](https://github.com/ggml-org/llama.cpp) or [Ollama](https://ollama.com/):
 
 - **Saved Prompts** - Store and organize prompts in a local `prompts.json` file, browse with the file lister
-- **LLM Generation** - Generate prompts locally using Qwen3 language models via llama.cpp (no cloud API needed)
+- **Prompt Hub** - Every generation tool has a built-in Prompt Loader for one-click access to saved prompts without switching tabs
+- **LLM Generation** - Generate prompts locally using Qwen3 language models via llama.cpp or Ollama (no cloud API needed)
+- **Ollama Support** - Use any model from your local Ollama installation as an alternative to llama.cpp
 - **System Prompt Presets** - Built-in presets for TTS/Voice and Sound Design/SFX workflows, or write your own
 - **Model Auto-Download** - Download Qwen3-4B (~4.8GB) or Qwen3-8B (~8.5GB) GGUF models directly from HuggingFace
 - **Custom Models** - Drop any `.gguf` file into `models/llama/` to use your own models
@@ -175,6 +202,9 @@ View, play back, and manage your previously generated audio files. Multi-select 
 Centralized application configuration:
 
 - **Model loading** - Attention mechanism, offline mode, low CPU memory usage
+- **CUDA Graphs Acceleration** - 5-10x faster Qwen3 inference via [Faster-Qwen3-TTS](https://github.com/andimarafioti/faster-qwen3-tts) (CUDA only, toggle in Settings)
+- **Multi-GPU Assignment** - Assign TTS, ASR, and Llama.cpp to different GPUs on multi-GPU systems
+- **LLM Backend** - Choose between llama.cpp and Ollama for prompt generation
 - **Folder paths** - Configurable directories for samples, output, datasets, models
 - **Model downloads** - Download models directly to local storage
 - **Visible Tools** - Enable or disable any tool tab (restart to apply)
@@ -186,11 +216,13 @@ Centralized application configuration:
 
 ### Prerequisites
 
-- **Conda** (Miniconda or Anaconda) - Required for environment management
-- **Linux:** CUDA-compatible GPU (NVIDIA) or ROCm-compatible GPU (AMD)
+- **Conda** (Miniconda or Anaconda) - Required for environment management (Python 3.12 will be installed; note that DeepFilterNet recommends 3.11 but we enforce 3.12)
+- **Linux:** CUDA-compatible GPU (NVIDIA) or ROCm-compatible GPU (AMD, 8GB+ VRAM recommended)
 - **SOX** (Sound eXchange) - Required for audio processing
 - **FFMPEG** - Multimedia framework required for audio format conversion
 - **llama.cpp** (optional) - Required only for the Prompt Manager's LLM generation feature. See [llama.cpp](https://github.com/ggml-org/llama.cpp)
+- **Ollama** (optional) - Alternative LLM backend for prompt generation. See [Ollama](https://ollama.com/)
+- [Flash Attention 2](https://github.com/Dao-AILab/flash-attention) (optional, CUDA only)
 
 **Note:** `openai-whisper` is skipped due to compatibility issues on Linux. Use VibeVoice ASR or Qwen3 ASR for transcription instead.
 

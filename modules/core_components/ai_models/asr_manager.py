@@ -182,7 +182,7 @@ class ASRManager:
             model_name = f"Qwen/Qwen3-ASR-{model_size}"
             print(f"Loading Qwen3 ASR model ({model_size})...")
             from qwen_asr import Qwen3ASRModel
-            device = get_device()
+            device = get_device(self.user_config.get("asr_gpu", 0))
             dtype = get_dtype(device)
 
             # Check for local model
@@ -274,7 +274,7 @@ class ASRManager:
             from qwen_asr import Qwen3ForcedAligner
 
             model_name = "Qwen/Qwen3-ForcedAligner-0.6B"
-            device = get_device()
+            device = get_device(self.user_config.get("asr_gpu", 0))
             dtype = get_dtype(device)
 
             # Check for local model
@@ -324,7 +324,7 @@ class ASRManager:
                 import json
 
                 model_path = "microsoft/VibeVoice-ASR"
-                device = get_device()
+                device = get_device(self.user_config.get("asr_gpu", 0))
                 dtype = get_dtype(device)
 
                 # Suppress warnings

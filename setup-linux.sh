@@ -59,7 +59,25 @@ else
     exit 1
 fi
 
-# Install ONNX Runtime
+# DeepFilterNet audio denoising (optional - requires Rust compiler for source build)
+echo ""
+echo "Installing DeepFilterNet (audio denoising)..."
+if run_in_env pip install deepfilternet; then
+    echo "DeepFilterNet installed successfully!"
+else
+    echo "WARNING: DeepFilterNet installation failed (requires Rust compiler to build from source)."
+    echo "Audio denoising will not be available, but all other features will work normally."
+    echo "To install later: Install Rust from https://rustup.rs then run: conda run -n voice-clone-studio pip install deepfilternet"
+fi
+
+# Faster Qwen3 TTS (CUDA graph acceleration, lightweight - auto-install)
+echo ""
+echo "Installing Faster Qwen3 TTS (CUDA graph acceleration)..."
+if run_in_env pip install faster-qwen3-tts; then
+    echo "Faster Qwen3 TTS installed successfully!"
+else
+    echo "WARNING: Faster Qwen3 TTS installation failed. Standard engine will be used."
+fi
 echo ""
 echo "Installing ONNX Runtime..."
 if [ "$GPU_CHOICE" == "2" ]; then

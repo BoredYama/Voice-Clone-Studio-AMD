@@ -1,5 +1,70 @@
 # Version History
 
+## March 3, 2026
+#### Version 1.10.0 - VibeVoice Training, Trained Model Inference & Streaming Voice Presets
+
+**VibeVoice LoRA Training**
+- **Dual-Engine Training** - Train custom voices with either Qwen3-TTS or VibeVoice LoRA finetuning
+- **Full Parameter UI** - All training parameters exposed with auto-save/restore per engine
+- **Stop Training** - Terminate training mid-run with clean status
+- **EMA Support** - Exponential Moving Average with auto-decay for short runs
+- **Clean Output** - Filtered verbose logs into clean per-epoch summaries
+
+**Voice Presets — VibeVoice Trained**
+- **Trained Model Inference** - Generate with trained VibeVoice LoRA checkpoints (LM LoRA + diffusion head + connectors)
+- **Optional Voice Sample** - Apply trained LoRA on top of a voice sample with adjustable strength
+- **Smart Caching** - Trained models stay cached, auto-reload on checkpoint change
+
+**Voice Presets — VibeVoice Speakers**
+- **7 Built-in Voices** - VibeVoice Streaming 0.5B with Carter, Davis, Emma, Frank, Grace, Mike, Samuel
+- **Auto-Download** - Voice prompts auto-download from GitHub and cache locally
+- **Fast Generation** - KV-cache for fast repeated generation
+
+**Other Changes**
+- **Python 3.11 Recommended** - DeepFilterNet lacks wheels for 3.12
+- **Gradio Visibility Fix** - Fixed hidden sections not rendering on first toggle
+
+## March 1, 2026
+#### Version 1.9.0 - CUDA Graphs Acceleration & Multi-GPU Support
+
+**Faster-Qwen3-TTS Integration**
+- **5-10x Faster Inference** - Integrated [Faster-Qwen3-TTS](https://github.com/andimarafioti/faster-qwen3-tts) for CUDA graph-accelerated Qwen3 generation with bit-identical output quality
+- **All Qwen3 Models** - Acceleration applies to Base, CustomVoice, VoiceDesign, and Trained Model checkpoints
+- **Toggle in Settings** - Enable/disable CUDA Graphs Acceleration under Faster-Qwen3-TTS section (CUDA only)
+- **Automatic Fallback** - Gracefully falls back to standard Qwen3TTSModel when CUDA graphs are unavailable or fail
+- **Setup Scripts Updated** - `setup-windows.bat` and `setup-linux.sh` auto-install the package (not on macOS)
+- **Trained Model Caching** - Trained model checkpoints are now cached between generations instead of reloading every time
+
+**Multi-GPU Support**
+- **GPU Assignment Dropdowns** - Assign TTS, ASR, and Llama.cpp to different GPUs on multi-GPU systems
+- **Per-Subsystem Control** - Each subsystem (TTS, ASR, LLM) can run on a separate GPU to maximize throughput
+- **Automatic Detection** - GPU dropdowns only appear when multiple CUDA GPUs are detected
+- **Saved Preferences** - GPU assignments persist across restarts via config.json
+
+**Bug Fixes**
+- **Conversation Tab Fix** - Fixed a broken component reference (`vv_conv_sentences_per_chunk` → `vv_conv_paragraph_per_chunk`) that prevented all interactive elements from working on the Conversation tab
+
+## February 22, 2026
+#### Version 1.8.0 - Prompt Hub, Ollama Support & Split by Paragraph
+
+**Prompt Hub Integration**
+- **Prompts Directly in Tools** - Every generation tool (Voice Clone, Voice Presets, Voice Design, Conversation, Sound Effects) now has a built-in Prompt Loader accordion for quick access to saved prompts
+- **One-Click Transfer** - Select a saved prompt and send it straight to the tool's text input without switching tabs
+- **Category Filtering** - Prompts are organized by category, with each tool showing only the relevant prompt type
+- **Auto-Refresh on Expand** - Prompt list refreshes automatically when the accordion is opened, no manual refresh needed
+
+**Ollama Support**
+- **New LLM Backend** - Added Ollama as an alternative LLM backend for prompt generation alongside llama.cpp
+- **Configurable in Settings** - Choose between llama.cpp and Ollama in Preferences; Ollama connects to a locally running instance
+- **Any Ollama Model** - Use any model available in your local Ollama installation for prompt generation
+
+**Split by Paragraph**
+- **Batch Audio Generation** - New "Split by Paragraph" checkbox in Voice Clone splits text by line breaks and generates a separate audio clip for each paragraph
+- **Base Name Prompt** - Enter a base name for the batch; clips are numbered sequentially (e.g., MyScene_001, MyScene_002)
+- **Combined Preview** - A combined preview of all clips plays automatically in the audio player after generation
+- **Name Collision Check** - Client-side validation warns if files with the same base name already exist in the output folder
+- **Works with All Engines** - Compatible with Qwen, VibeVoice, LuxTTS, and Chatterbox
+
 ## February 14, 2026
 #### Version 1.7.5 - Bug Fixes & Polish
 

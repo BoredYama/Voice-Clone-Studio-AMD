@@ -17,7 +17,7 @@ from transformers.utils import logging
 # from .modular_vibevoice_tokenizer import VibeVoiceTokenizerStreamingCache, VibeVoiceAcousticTokenizerModel, VibeVoiceSemanticTokenizerModel
 from .modular_vibevoice_tokenizer import VibeVoiceTokenizerStreamingCache, VibeVoiceTokenizerEncoderOutput
 from .modular_vibevoice_diffusion_head import VibeVoiceDiffusionHead
-from vibevoice_tts.schedule.dpm_solver import DPMSolverMultistepScheduler
+from modules.vibevoice_tts.schedule.dpm_solver import DPMSolverMultistepScheduler
 
 from .configuration_vibevoice import VibeVoiceConfig
 
@@ -401,6 +401,7 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         speech_tensors: Optional[torch.FloatTensor] = None,
         speech_masks: Optional[torch.BoolTensor] = None,
         speech_input_mask: Optional[torch.BoolTensor] = None,
+        is_prefill: bool = True,
         return_speech: bool = True,
         cfg_scale: float = 1.0,
         stop_check_fn: Optional[Callable[[], bool]] = None,
@@ -452,7 +453,6 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         device = input_ids.device
         finished_tags = torch.zeros(batch_size, dtype=torch.bool, device=device)
         correct_cnt = torch.zeros(batch_size, dtype=torch.long, device=device)
-        is_prefill = True
         inputs_embeds = None
         verbose = kwargs.get("verbose", False)
 
@@ -483,6 +483,12 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         max_step_per_sample = torch.min(generation_config.max_length - initial_length_per_sample, (max_length_times * initial_length_per_sample).long())
         reach_max_step_sample = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
+        # External progress callback (e.g. Gradio progress bar)
+        progress_callback = kwargs.get("progress_callback", None)
+        progress_start = kwargs.get("progress_start", 0.3)
+        progress_end = kwargs.get("progress_end", 0.95)
+        _last_progress_pct = -1
+
         # Create progress iterator if verbose
         if kwargs.get("show_progress_bar", True):
             progress_bar = tqdm(range(max_steps), desc="Generating", leave=False)
@@ -490,6 +496,16 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
             progress_bar = range(max_steps)
 
         for step in progress_bar:
+            # Forward progress to external callback (Gradio UI)
+            if progress_callback is not None and max_steps > 0:
+                pct = int(step * 100 / max_steps)
+                if pct >= _last_progress_pct + 2 or step == 0:
+                    _last_progress_pct = pct
+                    mapped = progress_start + (progress_end - progress_start) * (step / max_steps)
+                    try:
+                        progress_callback(mapped, desc=f"Generating - {pct}%")
+                    except Exception:
+                        pass
             # Check for external stop signal
             if stop_check_fn is not None and stop_check_fn():
                 if verbose:
@@ -526,11 +542,13 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
             if is_prefill:
                 # we process the speech inputs only during the first generation step
-                prefill_inputs = {
-                    "speech_tensors": speech_tensors.to(device=device),
-                    "speech_masks": speech_masks.to(device),
-                    "speech_input_mask": speech_input_mask.to(device),
-                }
+                prefill_inputs = {}
+                if speech_tensors is not None:
+                    prefill_inputs["speech_tensors"] = speech_tensors.to(device=device)
+                if speech_masks is not None:
+                    prefill_inputs["speech_masks"] = speech_masks.to(device)
+                if speech_input_mask is not None:
+                    prefill_inputs["speech_input_mask"] = speech_input_mask.to(device)
                 is_prefill = False
             else:
                 _ = model_inputs.pop('inputs_embeds', None)

@@ -97,8 +97,8 @@ class PrepSamplesTool(Tool):
                         )
                     components['samples_col'] = samples_col
 
-                    # --- Datasets mode ---
-                    with gr.Column(visible=False) as datasets_col:
+                    # --- Datasets mode (starts visible=True for DOM rendering; toggled on tab.select) ---
+                    with gr.Column(visible=True) as datasets_col:
                         gr.Markdown("### Dataset Files")
                         components['finetune_folder_dropdown'] = gr.Dropdown(
                             choices=["(Select Dataset)"] + get_dataset_folders(),
@@ -195,7 +195,7 @@ class PrepSamplesTool(Tool):
                         components['mono_btn'] = gr.Button("Convert to Mono", scale=2, size="sm")
 
                     with gr.Accordion("Split Settings", open=False,
-                                      visible=False) as auto_split_accordion:
+                                      visible=True) as auto_split_accordion:
                         with gr.Row():
                             components['split_min'] = gr.Slider(
                                 minimum=1, maximum=15, value=_user_config.get("split_min", 5), step=0.5,
@@ -223,7 +223,7 @@ class PrepSamplesTool(Tool):
                     components['auto_split_btn'] = gr.Button(
                         "Auto-Split Audio",
                         variant="primary",
-                        visible=False
+                        visible=True
                     )
 
                     gr.Markdown("### Reference Text")
@@ -240,7 +240,7 @@ class PrepSamplesTool(Tool):
                         components['save_btn'] = gr.Button("Save Sample", variant="primary")
 
                     # Dataset-only: batch transcribe + auto-split
-                    with gr.Column(visible=False) as batch_col:
+                    with gr.Column(visible=True) as batch_col:
                         components['batch_transcribe_btn'] = gr.Button(
                             "Batch Transcribe All Clips",
                             variant="primary", size="lg"
@@ -1528,11 +1528,33 @@ class PrepSamplesTool(Tool):
                 dataset_update = gr.update()
             return sample_update, folder_update, dataset_update
 
+        # Set correct mode visibility on tab select (all sections start visible=True for DOM rendering)
+        def toggle_prep_mode_visibility(data_type, transcribe_model):
+            """Set correct visibility for mode-dependent sections without clearing editor state."""
+            is_ds = is_dataset_mode(data_type)
+            engine, _ = parse_asr_model(transcribe_model)
+            show_auto_split = is_ds and engine in ("Qwen3 ASR", "Whisper")
+            return (
+                gr.update(visible=not is_ds),        # samples_col
+                gr.update(visible=is_ds),            # datasets_col
+                gr.update(visible=is_ds),            # batch_col
+                gr.update(visible=show_auto_split),  # auto_split_accordion
+                gr.update(visible=show_auto_split),  # auto_split_btn
+            )
+
         components['prep_tab'].select(
             on_prep_tab_select,
             inputs=[components['prep_data_type'], components['finetune_folder_dropdown'],
                     components['sample_lister'], components['dataset_lister']],
             outputs=[components['sample_lister'], components['finetune_folder_dropdown'], components['dataset_lister']]
+        ).then(
+            toggle_prep_mode_visibility,
+            inputs=[components['prep_data_type'], components['transcribe_model']],
+            outputs=[
+                components['samples_col'], components['datasets_col'],
+                components['batch_col'],
+                components['auto_split_accordion'], components['auto_split_btn'],
+            ]
         )
 
         # --- Delete (mode-aware JS context) ---
@@ -1797,6 +1819,19 @@ class PrepSamplesTool(Tool):
             lambda x: save_preference("discard_under", x),
             inputs=[components['discard_under']], outputs=[]
         )
+
+        # Set correct initial visibility on page load (tab.select doesn't fire for the first tab)
+        app = shared_state.get('app')
+        if app:
+            app.load(
+                toggle_prep_mode_visibility,
+                inputs=[components['prep_data_type'], components['transcribe_model']],
+                outputs=[
+                    components['samples_col'], components['datasets_col'],
+                    components['batch_col'],
+                    components['auto_split_accordion'], components['auto_split_btn'],
+                ]
+            )
 
 
 # Export for tab registry

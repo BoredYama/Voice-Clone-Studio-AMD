@@ -14,6 +14,7 @@ if __name__ == "__main__":
     sys.path.insert(0, str(project_root))
 
 import gradio as gr
+import torch as _torch
 from pathlib import Path
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.help_page import (
@@ -119,23 +120,43 @@ class SettingsTool(Tool):
                                         interactive=True
                                     )
                             with gr.Column():
-                                gr.Markdown("### llama.cpp (Prompt Manager)")
+                                gr.Markdown("### LLM Backend (Prompt Manager)")
 
-                                components['settings_llama_cpp_path'] = gr.Textbox(
-                                    label="llama.cpp Location",
-                                    value=_user_config.get("llama_cpp_path", ""),
-                                    info="Path to the folder containing llama-server. Leave empty to use system PATH.",
-                                    placeholder="e.g. C:\\llama.cpp\\build\\bin"
+                                _current_llm_backend = _user_config.get("llm_backend", "llama.cpp")
+                                components['settings_llm_backend'] = gr.Radio(
+                                    label="LLM Backend",
+                                    choices=["llama.cpp", "Ollama"],
+                                    value=_current_llm_backend,
+                                    info="llama.cpp runs local GGUF models. Ollama uses a running Ollama instance."
                                 )
-                                components['reset_llama_cpp_path_btn'] = gr.Button("Reset", size="sm")
 
-                                components['settings_llama_models_path'] = gr.Textbox(
-                                    label="Additional LLM Models Folder",
-                                    value=_user_config.get("llama_models_path", ""),
-                                    info="Extra folder to scan for .gguf models (in addition to models/llama/). Downloads go here if set.",
-                                    placeholder="e.g. D:\\models\\gguf"
-                                )
-                                components['reset_llama_models_path_btn'] = gr.Button("Reset", size="sm")
+                                with gr.Group(visible=_current_llm_backend == "llama.cpp") as llama_cpp_settings_group:
+                                    components['llama_cpp_settings_group'] = llama_cpp_settings_group
+                                    components['settings_llama_cpp_path'] = gr.Textbox(
+                                        label="llama.cpp Location",
+                                        value=_user_config.get("llama_cpp_path", ""),
+                                        info="Path to the folder containing llama-server. Leave empty to use system PATH.",
+                                        placeholder="e.g. C:\\llama.cpp\\build\\bin"
+                                    )
+                                    components['reset_llama_cpp_path_btn'] = gr.Button("Reset", size="sm")
+
+                                    components['settings_llama_models_path'] = gr.Textbox(
+                                        label="Additional LLM Models Folder",
+                                        value=_user_config.get("llama_models_path", ""),
+                                        info="Extra folder to scan for .gguf models (in addition to models/llama/). Downloads go here if set.",
+                                        placeholder="e.g. D:\\models\\gguf"
+                                    )
+                                    components['reset_llama_models_path_btn'] = gr.Button("Reset", size="sm")
+
+                                with gr.Group(visible=_current_llm_backend == "Ollama") as ollama_settings_group:
+                                    components['ollama_settings_group'] = ollama_settings_group
+                                    components['settings_ollama_url'] = gr.Textbox(
+                                        label="Ollama Base URL",
+                                        value=_user_config.get("llm_ollama_url", "http://127.0.0.1:11434"),
+                                        info="URL of your running Ollama instance. Models must be pre-pulled with 'ollama pull'.",
+                                        placeholder="http://127.0.0.1:11434"
+                                    )
+                                    components['reset_ollama_url_btn'] = gr.Button("Reset", size="sm")
 
                         with gr.Row():
                             with gr.Column():
@@ -187,6 +208,8 @@ class SettingsTool(Tool):
                                         "VibeVoice-Large",
                                         "--- VibeVoice ASR ---",
                                         "VibeVoice-ASR",
+                                        "--- Chatterbox ---",
+                                        "Chatterbox",
                                         "--- LuxTTS ---",
                                         "LuxTTS",
                                     ],
@@ -205,6 +228,7 @@ class SettingsTool(Tool):
                                     "VibeVoice-Large (4-bit)": "FranckyB/VibeVoice-Large-4bit",
                                     "VibeVoice-Large": "FranckyB/VibeVoice-Large",
                                     "VibeVoice-ASR": "microsoft/VibeVoice-ASR",
+                                    "Chatterbox": "ResembleAI/chatterbox",
                                     "LuxTTS": "YatharthS/LuxTTS",
                                 }
 
@@ -253,7 +277,50 @@ class SettingsTool(Tool):
                                 )
 
                             with gr.Column():
-                                gr.Markdown("")
+                                if _torch.cuda.is_available():
+                                    gr.Markdown("### Faster-Qwen3-TTS")
+                                    try:
+                                        import faster_qwen3_tts as _fqt  # noqa: F401
+                                        components['settings_cuda_graphs'] = gr.Checkbox(
+                                            label="CUDA Graphs Acceleration",
+                                            value=_user_config.get("cuda_graphs", True),
+                                            info="5-10x faster Qwen3 inference via CUDA graphs. Disable if you get errors."
+                                        )
+                                    except ImportError:
+                                        gr.Markdown(
+                                            "CUDA Graphs not available. Run setup script or install manually:\n\n"
+                                            "`pip install faster-qwen3-tts`"
+                                        )
+
+                                # GPU Assignment (only shown when multiple CUDA GPUs available)
+                                from modules.core_components.ai_models.model_utils import get_available_gpus
+                                available_gpus = get_available_gpus()
+                                has_multi_gpu = len(available_gpus) > 1
+                                if has_multi_gpu:
+                                    gpu_choices = [f"GPU {i}: {name}" for i, name in available_gpus]
+
+                                    gr.Markdown("### GPU Assignment")
+                                    with gr.Row():
+                                        components['settings_tts_gpu'] = gr.Dropdown(
+                                            label="TTS GPU",
+                                            choices=gpu_choices,
+                                            value=gpu_choices[int(_user_config.get("tts_gpu", 0))],
+                                            info="GPU used for text-to-speech models"
+                                        )
+                                        components['settings_asr_gpu'] = gr.Dropdown(
+                                            label="ASR GPU",
+                                            choices=gpu_choices,
+                                            value=gpu_choices[int(_user_config.get("asr_gpu", 0))],
+                                            info="GPU used for speech recognition models"
+                                        )
+                                        components['settings_llama_gpu'] = gr.Dropdown(
+                                            label="Llama.cpp GPU",
+                                            choices=gpu_choices,
+                                            value=gpu_choices[int(_user_config.get("llama_gpu", 0))],
+                                            info="GPU used for LLM prompt generation"
+                                        )
+                                else:
+                                    gr.Markdown("")
 
                         gr.Markdown("Configure where files are stored. Changes apply after clicking **Apply Changes**.")
                         # Default folder paths
@@ -262,7 +329,8 @@ class SettingsTool(Tool):
                             "output": "output",
                             "datasets": "datasets",
                             "temp": "temp",
-                            "models": "models"
+                            "models": "models",
+                            "trained_models": "trained_models"
                         }
                         components['default_folders'] = default_folders
 
@@ -304,7 +372,7 @@ class SettingsTool(Tool):
                             with gr.Column():
                                 components['settings_trained_models_folder'] = gr.Textbox(
                                     label="Trained Models Folder",
-                                    value=_user_config.get("trained_models_folder", default_folders["models"]),
+                                    value=_user_config.get("trained_models_folder", default_folders["trained_models"]),
                                     info="Folder for your custom trained models"
                                 )
                                 components['reset_trained_models_btn'] = gr.Button("Reset", size="sm")
@@ -386,6 +454,39 @@ class SettingsTool(Tool):
             inputs=[components['settings_skip_engine_check']],
             outputs=[]
         )
+
+        # Save CUDA graphs acceleration setting
+        if 'settings_cuda_graphs' in components:
+            components['settings_cuda_graphs'].change(
+                lambda x: save_preference("cuda_graphs", x),
+                inputs=[components['settings_cuda_graphs']],
+                outputs=[]
+            )
+
+        # Save GPU assignment settings (only if multi-GPU dropdowns exist)
+        if 'settings_tts_gpu' in components:
+            def extract_gpu_index(choice):
+                """Extract GPU index from dropdown choice string like 'GPU 0: NVIDIA ...'"""
+                try:
+                    return int(choice.split(":")[0].replace("GPU ", ""))
+                except (ValueError, AttributeError, IndexError):
+                    return 0
+
+            components['settings_tts_gpu'].change(
+                lambda x: save_preference("tts_gpu", extract_gpu_index(x)),
+                inputs=[components['settings_tts_gpu']],
+                outputs=[]
+            )
+            components['settings_asr_gpu'].change(
+                lambda x: save_preference("asr_gpu", extract_gpu_index(x)),
+                inputs=[components['settings_asr_gpu']],
+                outputs=[]
+            )
+            components['settings_llama_gpu'].change(
+                lambda x: save_preference("llama_gpu", extract_gpu_index(x)),
+                inputs=[components['settings_llama_gpu']],
+                outputs=[]
+            )
 
         # Save theme setting
         components['settings_theme'].change(
@@ -518,7 +619,7 @@ class SettingsTool(Tool):
         )
 
         components['reset_trained_models_btn'].click(
-            lambda: reset_folder("models"),
+            lambda: reset_folder("trained_models"),
             outputs=[components['settings_trained_models_folder']]
         )
 
@@ -530,6 +631,33 @@ class SettingsTool(Tool):
         components['reset_llama_models_path_btn'].click(
             lambda: "",
             outputs=[components['settings_llama_models_path']]
+        )
+
+        components['reset_ollama_url_btn'].click(
+            lambda: "http://127.0.0.1:11434",
+            outputs=[components['settings_ollama_url']]
+        )
+
+        def on_llm_backend_change(backend):
+            show_llama = backend == "llama.cpp"
+            _user_config["llm_backend"] = backend
+            save_config(_user_config)
+            return gr.update(visible=show_llama), gr.update(visible=not show_llama)
+
+        components['settings_llm_backend'].change(
+            on_llm_backend_change,
+            inputs=[components['settings_llm_backend']],
+            outputs=[components['llama_cpp_settings_group'], components['ollama_settings_group']]
+        )
+
+        def on_ollama_url_change(url):
+            _user_config["llm_ollama_url"] = url.strip()
+            save_config(_user_config)
+
+        components['settings_ollama_url'].change(
+            on_ollama_url_change,
+            inputs=[components['settings_ollama_url']],
+            outputs=[]
         )
 
         def download_model_clicked(model_display_name):
@@ -544,7 +672,7 @@ class SettingsTool(Tool):
             return status
 
         # Apply folder changes
-        def apply_folder_changes(samples, output, datasets, models, trained_models, llama_cpp_path, llama_models_path):
+        def apply_folder_changes(samples, output, datasets, models, trained_models, llama_cpp_path, llama_models_path, llm_backend, ollama_url):
             try:
                 # Get project root directory
                 base_dir = Path(__file__).parent.parent.parent.parent
@@ -575,6 +703,8 @@ class SettingsTool(Tool):
                 _user_config["trained_models_folder"] = trained_models
                 _user_config["llama_cpp_path"] = llama_cpp_path.strip()
                 _user_config["llama_models_path"] = llama_models_path.strip()
+                _user_config["llm_backend"] = llm_backend
+                _user_config["llm_ollama_url"] = ollama_url.strip()
                 save_config(_user_config)
 
                 status_lines = [
@@ -589,6 +719,8 @@ class SettingsTool(Tool):
                     status_lines.append(f"llama.cpp: {llama_cpp_path.strip()}")
                 if llama_models_path.strip():
                     status_lines.append(f"LLM Models: {llama_models_path.strip()}")
+                if llm_backend == "Ollama":
+                    status_lines.append(f"Ollama URL: {ollama_url.strip()}")
                 status_lines.append("\nNote: Restart the app to fully apply changes to all components.")
                 return "\n".join(status_lines)
 
@@ -596,9 +728,15 @@ class SettingsTool(Tool):
                 return f"❌ Error applying changes: {str(e)}"
 
         components['download_btn'].click(
+            fn=lambda: (gr.update(interactive=False, value="Downloading..."), "Downloading model... (check console for progress)"),
+            outputs=[components['download_btn'], components['settings_status']]
+        ).then(
             fn=download_model_clicked,
             inputs=[components['model_select']],
             outputs=[components['settings_status']]
+        ).then(
+            fn=lambda: gr.update(interactive=True, value="Download Model"),
+            outputs=[components['download_btn']]
         )
 
         components['apply_folders_btn'].click(
@@ -607,7 +745,8 @@ class SettingsTool(Tool):
                 components['settings_samples_folder'], components['settings_output_folder'],
                 components['settings_datasets_folder'], components['settings_models_folder'],
                 components['settings_trained_models_folder'],
-                components['settings_llama_cpp_path'], components['settings_llama_models_path']
+                components['settings_llama_cpp_path'], components['settings_llama_models_path'],
+                components['settings_llm_backend'], components['settings_ollama_url']
             ],
             outputs=[components['settings_status']]
         )

@@ -45,7 +45,7 @@ class VoiceDesignTool(Tool):
         _user_config = shared_state.get('_user_config', {})
         create_qwen_advanced_params = shared_state.get('create_qwen_advanced_params')
 
-        with gr.TabItem("Voice Design") as voice_design_tab:
+        with gr.TabItem("Voice Design", id="tab_voice_design") as voice_design_tab:
             components['voice_design_tab'] = voice_design_tab
             gr.Markdown("Create new voices from natural language descriptions")
 
@@ -59,6 +59,9 @@ class VoiceDesignTool(Tool):
                         lines=3,
                         max_lines=10
                     )
+
+                    import modules.core_components.prompt_hub as _prompt_hub
+                    components.update(_prompt_hub.create_prompt_loader("vd", "Saved Prompts"))
 
                     with gr.Row():
                         components['design_language'] = gr.Dropdown(
@@ -239,8 +242,16 @@ class VoiceDesignTool(Tool):
             except Exception as e:
                 return f"❌ Error saving: {str(e)}"
 
+        def _disable_gen_btn():
+            return gr.update(interactive=False)
+
+        def _enable_gen_btn():
+            return gr.update(interactive=True)
+
         # Wire generate button (restore saved params first, then generate)
         components['design_generate_btn'].click(
+            _disable_gen_btn, outputs=[components['design_generate_btn']]
+        ).then(
             restore_fn, outputs=restore_outputs
         ).then(
             generate_voice_design_handler,
@@ -248,6 +259,8 @@ class VoiceDesignTool(Tool):
                     components['design_seed'], components['do_sample'], components['temperature'], components['top_k'],
                     components['top_p'], components['repetition_penalty'], components['max_new_tokens']],
             outputs=[components['design_output_audio'], components['design_status'], components['design_save_btn']]
+        ).then(
+            _enable_gen_btn, outputs=[components['design_generate_btn']]
         )
 
         # Save designed voice - show modal (pre-fill label from JSON instruct if available)
@@ -311,6 +324,38 @@ class VoiceDesignTool(Tool):
                 lambda x: save_preference("language", x),
                 inputs=[components['design_language']],
                 outputs=[]
+            )
+
+        # --- Cross-tab prompt routing ---
+        import modules.core_components.prompt_hub as _prompt_hub
+        _prompt_hub.wire_prompt_loader(components, "vd", {"voice_design.instructions": components['design_instruct_input']})
+
+        prompt_apply_trigger = shared_state.get('prompt_apply_trigger')
+        if prompt_apply_trigger is not None:
+            import modules.core_components.prompt_hub as _prompt_hub
+
+            def _apply_vd_reference(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'voice_design.reference':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_vd_reference,
+                inputs=[prompt_apply_trigger, components['design_text_input']],
+                outputs=[components['design_text_input']],
+            )
+
+            def _apply_vd_instructions(raw_value, current):
+                parsed = _prompt_hub.parse_apply_payload(raw_value)
+                if not parsed or parsed['target_id'] != 'voice_design.instructions':
+                    return gr.update()
+                return gr.update(value=_prompt_hub.merge_text(current, parsed['text'], parsed['mode']))
+
+            prompt_apply_trigger.change(
+                _apply_vd_instructions,
+                inputs=[prompt_apply_trigger, components['design_instruct_input']],
+                outputs=[components['design_instruct_input']],
             )
 
 

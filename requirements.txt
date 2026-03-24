@@ -15,7 +15,7 @@ onnxruntime
 onnxruntime
 
 # Web UI and utilities
-gradio
+gradio>=6.7.0,<6.8.0
 gradio_filelister @ file:wheel/gradio_filelister-0.4.0-py3-none-any.whl
 diffusers
 markdown
@@ -37,12 +37,16 @@ av>=14.0.1
 # 4-bit quantization support (all platforms)
 bitsandbytes
 
-# Voice isolation and denoising
-deepfilternet
+# Voice isolation and denoising (optional - requires Rust compiler to build from source)
+# DeepFilterNet is installed separately by setup scripts with graceful fallback
+# pip install deepfilternet
 
 # Chatterbox Voice Conversion & TTS (vendored in modules/chatterbox/)
 s3tokenizer
 conformer
+
+# VibeVoice LoRA training
+peft
 
 # Optional performance enhancements (install separately for best performance):
 # - Flash Attention 2 (fast): pip install flash-attn --no-build-isolation

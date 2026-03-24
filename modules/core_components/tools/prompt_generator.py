@@ -21,6 +21,7 @@ import gradio as gr
 from pathlib import Path
 
 from modules.core_components.tool_base import Tool, ToolConfig
+import modules.core_components.prompt_hub as prompt_hub
 
 # ============================================================================
 # Prompts file (standalone, same level as config.json)
@@ -34,8 +35,11 @@ LLM_MODELS = {
     "Qwen3-4B-Q8_0.gguf": {
         "repo": "Qwen/Qwen3-4B-GGUF",
     },
-    "Qwen3-8B-Q8_0.gguf": {
-        "repo": "Qwen/Qwen3-8B-GGUF",
+    "Qwen3.5-9B-UD-Q4_K_XL.gguf": {
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+    },
+    "Qwen3.5-9B-Q8_0.gguf": {
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
     },
 }
 
@@ -77,7 +81,17 @@ def _load_system_prompts():
     return {}
 
 
-SYSTEM_PROMPTS = _load_system_prompts()
+def _get_merged_system_prompts():
+    """Merge prompt_hub target-aware presets with user's system_prompts.json.
+
+    Hub presets are the defaults; user's JSON adds/overrides on top.
+    """
+    merged = dict(prompt_hub.SYSTEM_PROMPTS)
+    merged.update(_load_system_prompts())
+    return merged
+
+
+SYSTEM_PROMPTS = _get_merged_system_prompts()
 SYSTEM_PROMPT_CHOICES = list(SYSTEM_PROMPTS.keys()) + ["Custom"]
 
 # ============================================================================
@@ -359,6 +373,7 @@ def _download_model(model_name, user_config, progress=None):
 
     try:
         from huggingface_hub import HfApi
+        print(f"[Prompt Manager] Downloading {model_name} from {repo_id}...")
         if progress:
             progress(0.0, desc=f"Downloading {model_name}...")
 
@@ -366,22 +381,35 @@ def _download_model(model_name, user_config, progress=None):
         repo_info = api.repo_info(repo_id=repo_id, files_metadata=True)
         file_metadata = next((f for f in repo_info.siblings if f.rfilename == model_name), None)
         if not file_metadata or file_metadata.size is None:
+            print(f"[Prompt Manager] Could not get file metadata for {model_name}")
             return None
 
         total_size = file_metadata.size
+        total_mb = total_size / (1024 * 1024)
+        print(f"[Prompt Manager] Model size: {total_mb:.0f} MB")
         download_url = f"https://huggingface.co/{repo_id}/resolve/main/{model_name}"
 
         downloaded = 0
+        last_logged_pct = -10
         with requests.get(download_url, stream=True) as r, open(str(local_path), "wb") as f:
             r.raise_for_status()
             for chunk in r.iter_content(chunk_size=65536):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if progress and total_size > 0:
+                    if total_size > 0:
                         pct = downloaded / total_size
-                        progress(pct, desc=f"Downloading {model_name}... {downloaded // (1024 * 1024)}MB / {total_size // (1024 * 1024)}MB")
+                        dl_mb = downloaded / (1024 * 1024)
+                        # Update UI progress
+                        if progress:
+                            progress(pct, desc=f"Downloading {model_name}... {dl_mb:.0f}MB / {total_mb:.0f}MB")
+                        # Log to console every 10%
+                        pct_int = int(pct * 100)
+                        if pct_int >= last_logged_pct + 10:
+                            last_logged_pct = pct_int
+                            print(f"[Prompt Manager] Download: {pct_int}% ({dl_mb:.0f}MB / {total_mb:.0f}MB)")
 
+        print(f"[Prompt Manager] Download complete: {local_path}")
         if progress:
             progress(1.0, desc="Download complete")
         return str(local_path)
@@ -430,10 +458,12 @@ def _start_server(model_name, user_config, progress=None):
         pass
 
     # Download if not local
-    if not _is_model_local(model_name, user_config):
+    needs_download = not _is_model_local(model_name, user_config)
+    if needs_download:
         if model_name in LLM_MODELS:
             if progress:
-                progress(0.1, desc=f"Downloading {model_name}...")
+                progress(0.05, desc=f"Downloading {model_name}...")
+            print(f"[Prompt Manager] Model not found locally, downloading {model_name}...")
             model_path = _download_model(model_name, user_config, progress)
             if not model_path:
                 return False, f"Failed to download model: {model_name}"
@@ -470,6 +500,11 @@ def _start_server(model_name, user_config, progress=None):
             "--no-warmup",
             "-c", "4096"
         ]
+
+        # Assign specific GPU if configured
+        llama_gpu = int(user_config.get("llama_gpu", 0))
+        if llama_gpu > 0:
+            cmd_args.extend(["--main-gpu", str(llama_gpu)])
 
         popen_kwargs = {
             "stdout": subprocess.PIPE,
@@ -571,42 +606,34 @@ except Exception:
 # Prompts file management
 # ============================================================================
 
-def _load_prompts():
-    """Load prompts from prompts.json.
+def _load_prompts(category=None):
+    """Load prompts from prompts.json, optionally filtered by category.
+
+    Args:
+        category: Category key (e.g. 'prompt', 'custom'). None returns all merged.
 
     Returns:
         Dictionary of name -> text pairs
     """
-    if PROMPTS_FILE.exists():
-        try:
-            with open(PROMPTS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return data
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
+    return prompt_hub.load_prompts(category)
 
 
-def _save_prompts(prompts):
-    """Save prompts to prompts.json, sorted alphabetically.
+def _save_prompts(prompts, category="custom"):
+    """Save prompts for a category to prompts.json.
 
     Args:
         prompts: Dictionary of name -> text pairs
+        category: Category prefix to save under
 
     Returns:
-        Sorted prompts dictionary
+        Sorted prompts dictionary that was written
     """
-    sorted_prompts = dict(sorted(prompts.items(), key=lambda x: x[0].lower()))
-    with open(PROMPTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(sorted_prompts, f, indent=2, ensure_ascii=False)
-    return sorted_prompts
+    return prompt_hub.save_prompts(prompts, category)
 
 
-def _get_prompt_names():
-    """Get list of prompt names for FileLister."""
-    prompts = _load_prompts()
-    return sorted(prompts.keys(), key=str.lower)
+def _get_prompt_names(category=None):
+    """Get sorted list of prompt names, optionally filtered by category."""
+    return prompt_hub.get_prompt_names(category)
 
 
 # ============================================================================
@@ -732,7 +759,17 @@ class PromptManagerTool(Tool):
         from gradio_filelister import FileLister
 
         user_config = shared_state.get('_user_config', {})
-        model_choices = _get_all_model_choices(user_config)
+        llm_backend = user_config.get("llm_backend", "llama.cpp")
+
+        # Get model choices depending on the configured backend
+        if llm_backend == "Ollama":
+            model_choices, _disc_status = prompt_hub.discover_available_models(
+                user_config, use_local_ollama=True, endpoint_url=""
+            )
+            if not model_choices:
+                model_choices = []
+        else:
+            model_choices = _get_all_model_choices(user_config)
 
         # Restore saved LLM model selection
         saved_llm_model = user_config.get("llm_model", "")
@@ -740,6 +777,12 @@ class PromptManagerTool(Tool):
             default_llm_model = saved_llm_model
         else:
             default_llm_model = model_choices[0] if model_choices else None
+
+        # Cross-tab routing: target choices and availability
+        target_choices = prompt_hub.get_enabled_target_choices(user_config)
+        target_choices = target_choices + [("Custom", "_custom")]
+        default_target = target_choices[0][1] if target_choices else "_custom"
+        cross_tab_available = shared_state.get('prompt_apply_trigger') is not None
 
         components = {}
 
@@ -774,15 +817,31 @@ class PromptManagerTool(Tool):
                             scale=1
                         )
 
-                    components['pm_status'] = gr.Textbox(
-                        label="Status",
-                        interactive=False,
-                        lines=1,
+                    gr.Markdown("### Send To Tab")
+                    components['pm_target'] = gr.Dropdown(
+                        label="Target Field",
+                        choices=target_choices,
+                        value=default_target,
+                        interactive=True,
+                        info="Drives saved prompts shown below and where Send delivers the prompt.",
                     )
+                    with gr.Row():
+                        components['send_replace_btn'] = gr.Button(
+                            "Send (Replace)",
+                            variant="primary",
+                            scale=1,
+                            interactive=cross_tab_available and default_target != "_custom",
+                        )
+                        components['send_append_btn'] = gr.Button(
+                            "Send (Append)",
+                            scale=1,
+                            interactive=cross_tab_available and default_target != "_custom",
+                        )
 
                     gr.Markdown("### Saved Prompts")
+                    _init_category = prompt_hub.get_category_for_target(default_target)
                     components['prompt_lister'] = FileLister(
-                        value=_get_prompt_names(),
+                        value=_get_prompt_names(_init_category),
                         height=200,
                         show_footer=False,
                         interactive=True
@@ -808,13 +867,12 @@ class PromptManagerTool(Tool):
                         interactive=True
                     )
 
-                    with gr.Row():
-                        components['llm_model'] = gr.Dropdown(
-                            label="LLM Model",
-                            choices=model_choices,
-                            value=default_llm_model,
-                            interactive=True
-                        )
+                    components['llm_model'] = gr.Dropdown(
+                        label="LLM Model",
+                        choices=model_choices,
+                        value=default_llm_model,
+                        interactive=True,
+                    )
 
                     with gr.Accordion("Advanced Settings", open=False) as llm_accordion:
                         components['llm_accordion'] = llm_accordion
@@ -894,11 +952,12 @@ class PromptManagerTool(Tool):
                         )
                         components['stop_server_btn'] = gr.Button(
                             "Stop LLM Server",
-                            variant="stop"
+                            variant="stop",
+                            visible=(llm_backend == "llama.cpp")
                         )
 
                     components['llm_status'] = gr.Textbox(
-                        label="LLM Status",
+                        label="Status",
                         interactive=False,
                         lines=1,
                     )
@@ -924,6 +983,7 @@ class PromptManagerTool(Tool):
         show_confirmation_modal_js = shared_state.get('show_confirmation_modal_js')
         input_trigger = shared_state.get('input_trigger')
         confirm_trigger = shared_state.get('confirm_trigger')
+        cross_tab_available = shared_state.get('prompt_apply_trigger') is not None
 
         # Wire param persistence (auto-save on change)
         wire_param_persistence = shared_state['wire_param_persistence']
@@ -946,8 +1006,25 @@ class PromptManagerTool(Tool):
         # Restore saved params when accordion is opened
         components['llm_accordion'].expand(restore_fn, outputs=restore_outputs)
 
+        # --- Target change: refresh lister + toggle Send buttons ---
+        def on_target_change(target):
+            """Refresh saved-prompts lister and enable/disable Send buttons based on target."""
+            category = prompt_hub.get_category_for_target(target)
+            can_send = cross_tab_available and target != "_custom"
+            return (
+                gr.update(value=_get_prompt_names(category)),
+                gr.update(interactive=can_send),
+                gr.update(interactive=can_send),
+            )
+
+        components['pm_target'].change(
+            on_target_change,
+            inputs=[components['pm_target']],
+            outputs=[components['prompt_lister'], components['send_replace_btn'], components['send_append_btn']]
+        )
+
         # --- Select prompt from lister ---
-        def load_selected_prompt(lister_value):
+        def load_selected_prompt(lister_value, target):
             """Load a selected prompt into the text box."""
             if not lister_value:
                 return gr.update()
@@ -956,20 +1033,20 @@ class PromptManagerTool(Tool):
                 return gr.update()
 
             prompt_name = selected[0]
-            prompts = _load_prompts()
-            text = prompts.get(prompt_name, "")
+            category = prompt_hub.get_category_for_target(target)
+            text = _load_prompts(category).get(prompt_name, "")
             return gr.update(value=text)
 
         components['prompt_lister'].change(
             load_selected_prompt,
-            inputs=[components['prompt_lister']],
+            inputs=[components['prompt_lister'], components['pm_target']],
             outputs=[components['prompt_text']]
         )
 
         # --- Clear button ---
         components['clear_btn'].click(
             fn=lambda: (gr.update(value=""), ""),
-            outputs=[components['prompt_text'], components['pm_status']]
+            outputs=[components['prompt_text'], components['llm_status']]
         )
 
         # --- Save button: open input modal ---
@@ -980,9 +1057,9 @@ class PromptManagerTool(Tool):
             context="save_prompt_"
         )
 
-        def get_existing_prompt_names():
-            """Return JSON list of existing prompt names for overwrite detection."""
-            names = _get_prompt_names()
+        def get_existing_prompt_names(category):
+            """Return JSON list of existing prompt names for overwrite detection in given category."""
+            names = _get_prompt_names(category)
             return json.dumps(names)
 
         def get_selected_name(lister_value):
@@ -1005,10 +1082,10 @@ class PromptManagerTool(Tool):
         }}
         """
 
-        # Step 1: Get existing names, then step 2: open modal
+        # Step 1: Get existing names (for the active category), then step 2: open modal
         components['save_btn'].click(
-            fn=lambda lister_val: (get_existing_prompt_names(), get_selected_name(lister_val)),
-            inputs=[components['prompt_lister']],
+            fn=lambda lister_val, target: (get_existing_prompt_names(prompt_hub.get_category_for_target(target)), get_selected_name(lister_val)),
+            inputs=[components['prompt_lister'], components['pm_target']],
             outputs=[components['pm_existing_files_json'], components['pm_suggested_name']],
         ).then(
             fn=None,
@@ -1017,8 +1094,8 @@ class PromptManagerTool(Tool):
         )
 
         # --- Input modal handler: save prompt ---
-        def handle_save_prompt(input_value, prompt_text):
-            """Process input modal result for saving prompts."""
+        def handle_save_prompt(input_value, prompt_text, target):
+            """Process input modal result for saving prompts under the active category."""
             no_update = gr.update(), gr.update()
 
             if not input_value or not input_value.startswith("save_prompt_"):
@@ -1040,20 +1117,22 @@ class PromptManagerTool(Tool):
             if not prompt_text or not prompt_text.strip():
                 return "No prompt text to save", gr.update()
 
+            cat = prompt_hub.get_category_for_target(target)
             try:
-                prompts = _load_prompts()
+                prompts = _load_prompts(cat)
                 prompts[chosen_name.strip()] = prompt_text.strip()
-                _save_prompts(prompts)
+                _save_prompts(prompts, cat)
 
-                new_names = _get_prompt_names()
-                return f"Saved: {chosen_name.strip()}", gr.update(value=new_names)
+                new_names = _get_prompt_names(cat)
+                cat_label = prompt_hub.PROMPT_CATEGORIES.get(cat, cat)
+                return f"Saved '{chosen_name.strip()}' under {cat_label}", gr.update(value=new_names)
             except Exception as e:
                 return f"Error saving: {e}", gr.update()
 
         input_trigger.change(
             handle_save_prompt,
-            inputs=[input_trigger, components['prompt_text']],
-            outputs=[components['pm_status'], components['prompt_lister']]
+            inputs=[input_trigger, components['prompt_text'], components['pm_target']],
+            outputs=[components['llm_status'], components['prompt_lister']]
         )
 
         # --- Delete button: confirm and delete ---
@@ -1069,8 +1148,8 @@ class PromptManagerTool(Tool):
             )
         )
 
-        def handle_delete_prompt(confirm_value, lister_value):
-            """Delete the selected prompt after confirmation."""
+        def handle_delete_prompt(confirm_value, lister_value, target):
+            """Delete the selected prompt (from the active category) after confirmation."""
             no_update = gr.update(), gr.update(), gr.update()
 
             if not confirm_value or not confirm_value.startswith("delete_prompt_"):
@@ -1085,47 +1164,113 @@ class PromptManagerTool(Tool):
                 return "Select a single prompt to delete", gr.update(), gr.update()
 
             prompt_name = selected[0]
+            cat = prompt_hub.get_category_for_target(target)
             try:
-                prompts = _load_prompts()
+                prompts = _load_prompts(cat)
                 if prompt_name not in prompts:
                     return f"Prompt not found: {prompt_name}", gr.update(), gr.update()
 
                 del prompts[prompt_name]
-                _save_prompts(prompts)
+                _save_prompts(prompts, cat)
 
-                new_names = _get_prompt_names()
+                new_names = _get_prompt_names(cat)
                 return f"Deleted: {prompt_name}", gr.update(value=new_names), gr.update(value="")
             except Exception as e:
                 return f"Error deleting: {e}", gr.update(), gr.update()
 
         confirm_trigger.change(
             handle_delete_prompt,
-            inputs=[confirm_trigger, components['prompt_lister']],
-            outputs=[components['pm_status'], components['prompt_lister'], components['prompt_text']]
+            inputs=[confirm_trigger, components['prompt_lister'], components['pm_target']],
+            outputs=[components['llm_status'], components['prompt_lister'], components['prompt_text']]
         )
 
-        # --- Reload system prompts when tab is selected ---
+        # --- Cross-tab routing ---
+        prompt_apply_trigger = shared_state.get('prompt_apply_trigger')
+        main_tabs_component = shared_state.get('main_tabs_component')
+
+        def send_prompt_to_target(mode, prompt_text, target_id):
+            """Build apply payload to send a prompt to a target tab field."""
+            if not prompt_text or not str(prompt_text).strip():
+                return "", "Prompt text is empty. Nothing sent."
+            enabled_choices = prompt_hub.get_enabled_target_choices(user_config)
+            enabled_ids = {value for _label, value in enabled_choices}
+            if not target_id or target_id not in enabled_ids:
+                return "", "Target is not available or disabled."
+
+            payload = prompt_hub.build_apply_payload(target_id, mode, str(prompt_text), source="prompt_manager")
+            target_label = prompt_hub.PROMPT_TARGETS.get(target_id, {}).get("label", target_id)
+            return payload, f"Sent to {target_label} ({mode})."
+
+        if prompt_apply_trigger is not None:
+            if main_tabs_component is not None:
+                def send_and_switch(mode, prompt_text, target_id):
+                    payload, status = send_prompt_to_target(mode, prompt_text, target_id)
+                    tab_id = prompt_hub.get_target_tab_id(target_id) if payload else ""
+                    tab_update = gr.update(selected=tab_id) if tab_id else gr.update()
+                    return payload, status, tab_update
+
+                components['send_replace_btn'].click(
+                    lambda text, target: send_and_switch("replace", text, target),
+                    inputs=[components['prompt_text'], components['pm_target']],
+                    outputs=[prompt_apply_trigger, components['llm_status'], main_tabs_component],
+                )
+                components['send_append_btn'].click(
+                    lambda text, target: send_and_switch("append", text, target),
+                    inputs=[components['prompt_text'], components['pm_target']],
+                    outputs=[prompt_apply_trigger, components['llm_status'], main_tabs_component],
+                )
+            else:
+                components['send_replace_btn'].click(
+                    lambda text, target: send_prompt_to_target("replace", text, target),
+                    inputs=[components['prompt_text'], components['pm_target']],
+                    outputs=[prompt_apply_trigger, components['llm_status']],
+                )
+                components['send_append_btn'].click(
+                    lambda text, target: send_prompt_to_target("append", text, target),
+                    inputs=[components['prompt_text'], components['pm_target']],
+                    outputs=[prompt_apply_trigger, components['llm_status']],
+                )
+
+        # --- Reload system prompts and refresh model list when tab is selected ---
         def on_tab_select(current_preset):
-            """Reload system_prompts.json from disk so edits take effect without restart."""
+            """Reload system_prompts.json and rescan for models when tab is opened."""
             global SYSTEM_PROMPTS, SYSTEM_PROMPT_CHOICES
-            SYSTEM_PROMPTS = _load_system_prompts()
+            SYSTEM_PROMPTS = _get_merged_system_prompts()
             SYSTEM_PROMPT_CHOICES = list(SYSTEM_PROMPTS.keys()) + ["Custom"]
-            # Keep current selection if it still exists, otherwise reset to first
             if current_preset not in SYSTEM_PROMPT_CHOICES:
                 current_preset = SYSTEM_PROMPT_CHOICES[0] if SYSTEM_PROMPT_CHOICES else "Custom"
             prompt_text = SYSTEM_PROMPTS.get(current_preset, "")
-            return gr.update(choices=SYSTEM_PROMPT_CHOICES, value=current_preset), gr.update(value=prompt_text)
+
+            # Refresh model list
+            backend = user_config.get("llm_backend", "llama.cpp")
+            if backend == "Ollama":
+                new_model_choices, _status = prompt_hub.discover_available_models(
+                    user_config, use_local_ollama=True, endpoint_url=""
+                )
+                if not new_model_choices:
+                    new_model_choices = []
+            else:
+                new_model_choices = _get_all_model_choices(user_config)
+            saved = user_config.get("llm_model", "")
+            new_model_value = saved if saved in new_model_choices else (new_model_choices[0] if new_model_choices else None)
+            model_update = gr.update(choices=new_model_choices, value=new_model_value)
+
+            return gr.update(choices=SYSTEM_PROMPT_CHOICES, value=current_preset), gr.update(value=prompt_text), model_update
 
         components['prompt_generator_tab'].select(
             on_tab_select,
             inputs=[components['system_prompt_preset']],
-            outputs=[components['system_prompt_preset'], components['system_prompt']]
+            outputs=[components['system_prompt_preset'], components['system_prompt'], components['llm_model']]
         )
 
         # --- System prompt preset selector ---
         def on_preset_change(preset_name):
             if preset_name in SYSTEM_PROMPTS:
-                return gr.update(value=SYSTEM_PROMPTS[preset_name])
+                text = SYSTEM_PROMPTS[preset_name]
+                # Resolve {available_emotions} placeholder if present
+                if "{available_emotions}" in text:
+                    text = text.replace("{available_emotions}", prompt_hub.get_available_emotions_text(user_config))
+                return gr.update(value=text)
             return gr.update(value="")  # "Custom" — leave text as-is
 
         components['system_prompt_preset'].change(
@@ -1133,11 +1278,6 @@ class PromptManagerTool(Tool):
             inputs=[components['system_prompt_preset']],
             outputs=[components['system_prompt']]
         )
-
-        # --- Refresh model list when dropdown is clicked ---
-        def refresh_llm_models():
-            choices = _get_all_model_choices(user_config)
-            return gr.update(choices=choices)
 
         # --- Generate prompt with LLM ---
         def generate_with_llm(instruction, system_prompt, model_name,
@@ -1152,16 +1292,11 @@ class PromptManagerTool(Tool):
                 return gr.update(), "Please select a model", gr.update(), gr.update()
 
             try:
-                progress(0.1, desc="Starting LLM server...")
-                success, error = _start_server(model_name, user_config, progress)
-                if not success:
-                    return gr.update(), f"Server error: {error}", gr.update(), gr.update()
-
-                progress(0.6, desc="Generating prompt...")
-
-                # Build request
+                # Build shared payload (llama.cpp ignores "model" field, Ollama requires it)
                 effective_system = system_prompt.strip() if system_prompt and system_prompt.strip() else SYSTEM_PROMPTS[SYSTEM_PROMPT_CHOICES[0]]
+                actual_seed = int(seed) if int(seed) >= 0 else random.randint(0, 2**32 - 1)
                 payload = {
+                    "model": model_name,
                     "messages": [
                         {"role": "system", "content": effective_system},
                         {"role": "user", "content": instruction.strip()}
@@ -1172,29 +1307,49 @@ class PromptManagerTool(Tool):
                     "top_k": int(top_k),
                     "min_p": float(min_p),
                     "repeat_penalty": float(repeat_penalty),
+                    "seed": actual_seed,
                 }
 
-                # Seed: use provided value, or generate a random one
-                actual_seed = int(seed) if int(seed) >= 0 else random.randint(0, 2**32 - 1)
-                payload["seed"] = actual_seed
-
-                response = requests.post(
-                    f"http://localhost:{SERVER_PORT}/v1/chat/completions",
-                    json=payload,
-                    timeout=120
-                )
-
-                if response.status_code == 500:
-                    # Server error, try restarting once
-                    _stop_server()
+                backend = user_config.get("llm_backend", "llama.cpp")
+                if backend == "Ollama":
+                    progress(0.3, desc="Sending to Ollama...")
+                    base_url = prompt_hub.get_effective_base_url(True, "", user_config)
+                    headers = prompt_hub.build_headers(user_config, use_local_ollama=True)
+                    response = requests.post(
+                        f"{base_url}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                        timeout=120
+                    )
+                    progress(0.8, desc="Generating prompt...")
+                else:
+                    # Show appropriate message based on whether download is needed
+                    if _is_model_local(model_name, user_config):
+                        progress(0.1, desc="Starting LLM server...")
+                    else:
+                        progress(0.05, desc=f"Downloading {model_name}...")
                     success, error = _start_server(model_name, user_config, progress)
                     if not success:
-                        return gr.update(), f"Server restart failed: {error}", gr.update(), gr.update()
+                        return gr.update(), f"Server error: {error}", gr.update(), gr.update()
+
+                    progress(0.6, desc="Generating prompt...")
                     response = requests.post(
                         f"http://localhost:{SERVER_PORT}/v1/chat/completions",
                         json=payload,
                         timeout=120
                     )
+
+                    if response.status_code == 500:
+                        # Server error, try restarting once
+                        _stop_server()
+                        success, error = _start_server(model_name, user_config, progress)
+                        if not success:
+                            return gr.update(), f"Server restart failed: {error}", gr.update(), gr.update()
+                        response = requests.post(
+                            f"http://localhost:{SERVER_PORT}/v1/chat/completions",
+                            json=payload,
+                            timeout=120
+                        )
 
                 response.raise_for_status()
                 data = response.json()
@@ -1243,13 +1398,23 @@ class PromptManagerTool(Tool):
                 )
 
             except requests.exceptions.ConnectionError:
+                if user_config.get("llm_backend", "llama.cpp") == "Ollama":
+                    return gr.update(), "Could not connect to Ollama. Start 'ollama serve' and retry.", gr.update(), gr.update()
                 return gr.update(), "Could not connect to LLM server. Is llama-server installed?", gr.update(), gr.update()
             except requests.exceptions.Timeout:
                 return gr.update(), "LLM request timed out (120s)", gr.update(), gr.update()
             except Exception as e:
                 return gr.update(), f"Error: {e}", gr.update(), gr.update()
 
+        def _disable_gen_btn():
+            return gr.update(interactive=False)
+
+        def _enable_gen_btn():
+            return gr.update(interactive=True)
+
         components['generate_btn'].click(
+            _disable_gen_btn, outputs=[components['generate_btn']]
+        ).then(
             restore_fn, outputs=restore_outputs
         ).then(
             generate_with_llm,
@@ -1271,6 +1436,8 @@ class PromptManagerTool(Tool):
                 components['temp_lister'],
                 components['temp_info'],
             ]
+        ).then(
+            _enable_gen_btn, outputs=[components['generate_btn']]
         )
 
         # --- Stop server button ---
