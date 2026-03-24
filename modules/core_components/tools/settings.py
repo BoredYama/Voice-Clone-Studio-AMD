@@ -277,7 +277,7 @@ class SettingsTool(Tool):
                                 )
 
                             with gr.Column():
-                                if _torch.cuda.is_available():
+                                if _torch.cuda.is_available() and not (hasattr(_torch.version, 'hip') and _torch.version.hip is not None):
                                     gr.Markdown("### Faster-Qwen3-TTS")
                                     try:
                                         import faster_qwen3_tts as _fqt  # noqa: F401

@@ -96,6 +96,9 @@ class TTSManager:
         # Must have CUDA
         if not torch.cuda.is_available():
             return False
+        # Do not use on ROCm
+        if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+            return False
         # Multi-GPU: FasterQwen3TTS currently only supports cuda:0
         tts_gpu = int(self.user_config.get("tts_gpu", 0))
         if tts_gpu != 0:
